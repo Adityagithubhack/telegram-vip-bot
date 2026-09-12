@@ -14,6 +14,23 @@ class UserService:
     ) -> None:
         self._session_factory = session_factory
 
+    async def set_locale(
+        self,
+        *,
+        user_id: int,
+        locale: str,
+    ) -> None:
+        async with self._session_factory() as session:
+            repository = UserRepository(session)
+
+            await repository.update_locale(
+                user_id=user_id,
+                locale=locale,
+                updated_at=datetime.now(UTC),
+            )
+
+            await session.commit()
+
     async def upsert_from_telegram(
         self,
         telegram_user: TelegramUser,

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,22 @@ class UserRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def update_locale(
+        self,
+        *,
+        user_id: int,
+        locale: str,
+        updated_at: datetime,
+    ) -> None:
+        await self._session.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                locale=locale,
+                updated_at=updated_at,
+            )
+        )
 
     async def upsert(
         self,
@@ -52,10 +68,10 @@ class UserRepository:
                     "username": username,
                     "first_name": first_name,
                     "last_name": last_name,
-                    "locale": locale,
                     "is_bot": is_bot,
                     "is_active": True,
                     "last_seen_at": now,
+                    "updated_at": now,
                 },
             )
             .returning(User)

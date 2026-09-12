@@ -1,76 +1,13 @@
 from aiogram import F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 
-from app.services.membership import MembershipDecision, MembershipService
+from app.bot.routers.menu import send_main_menu
+from app.bot.views.membership import send_membership_gate
+from app.services.membership import MembershipService
 from app.services.user import UserService
 
 router = Router(name="start")
-
-
-def build_membership_keyboard(
-    decision: MembershipDecision,
-) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-
-    for channel in decision.channels:
-        if channel.is_satisfied:
-            continue
-
-        url = channel.invite_url
-        if url is None and channel.username is not None:
-            url = f"https://t.me/{channel.username}"
-
-        if url is not None:
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        text=f"📢 JOIN {channel.title}",
-                        url=url,
-                    )
-                ]
-            )
-
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text="✅ I'VE JOINED",
-                callback_data="membership:verify",
-            )
-        ]
-    )
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-async def send_membership_gate(
-    message: Message,
-    decision: MembershipDecision,
-) -> None:
-    lines = [
-        "🏆 <b>SPIDY’S ADMIN</b>",
-        "",
-        "🔒 <b>ONE STEP BEFORE YOUR ACCESS</b>",
-        "",
-        "Please join the required channel first.",
-        "",
-    ]
-
-    for channel in decision.channels:
-        icon = "✅" if channel.is_satisfied else "❌"
-        lines.append(f"{icon} {channel.title}")
-
-    lines.extend(
-        [
-            "",
-            "After joining, tap <b>✅ I'VE JOINED</b>.",
-        ]
-    )
-
-    await message.answer(
-        "\n".join(lines),
-        reply_markup=build_membership_keyboard(decision),
-    )
 
 
 @router.message(CommandStart())
@@ -96,11 +33,7 @@ async def handle_start(
         return
 
     if decision.all_required_joined:
-        await message.answer(
-            "✅ <b>Membership verified</b>\n\n"
-            "Welcome to SPIDY’S ADMIN.\n"
-            "Your access is active."
-        )
+        await send_main_menu(message)
         return
 
     await send_membership_gate(
@@ -134,10 +67,9 @@ async def handle_membership_verify(
 
         if isinstance(callback.message, Message):
             await callback.message.edit_text(
-                "✅ <b>Membership verified</b>\n\n"
-                "Welcome to SPIDY’S ADMIN.\n"
-                "Your access is active."
+                "✅ <b>Membership verified</b>"
             )
+            await send_main_menu(callback.message)
         return
 
     await callback.answer(
