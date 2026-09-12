@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     webhook_path: str = "/telegram/webhook"
     webhook_secret: SecretStr | None = None
 
+    database_url: str
+    redis_url: str
+
     @property
     def is_production(self) -> bool:
         return self.environment is Environment.PRODUCTION

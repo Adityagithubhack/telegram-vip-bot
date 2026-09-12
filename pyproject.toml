@@ -13,6 +13,10 @@ dependencies = [
     "pydantic>=2,<3",
     "pydantic-settings>=2,<3",
     "structlog>=24,<26",
+    "sqlalchemy[asyncio]>=2,<3",
+    "asyncpg>=0.30,<1",
+    "alembic>=1.14,<2",
+    "redis>=5,<7",
 ]
 
 [project.optional-dependencies]

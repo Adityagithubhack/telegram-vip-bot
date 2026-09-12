@@ -6,13 +6,18 @@ from app.bot.factory import create_bot
 from app.config.settings import BotMode, get_settings
 from app.core.logging import configure_logging
 from app.dispatcher import create_dispatcher
+from app.infra.db.session import create_session_factory
 
 
 async def run_polling() -> None:
     settings = get_settings()
 
     bot = create_bot(settings.bot_token.get_secret_value())
-    dispatcher = create_dispatcher()
+    session_factory = create_session_factory(settings)
+    dispatcher = create_dispatcher(
+        bot=bot,
+        session_factory=session_factory,
+    )
 
     log = structlog.get_logger(__name__)
 
