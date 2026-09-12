@@ -563,3 +563,78 @@ async def handle_vip_pending(
     )
 
     await callback.answer()
+
+
+@router.callback_query(F.data == "menu:vip_active")
+async def handle_vip_active(
+    callback: CallbackQuery,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👑 MY VIP DASHBOARD",
+                    callback_data="menu:my_vip",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 DAILY PICKS",
+                    callback_data="menu:daily_picks",
+                ),
+                InlineKeyboardButton(
+                    text="🏠 MAIN MENU",
+                    callback_data="menu:home",
+                ),
+            ],
+        ]
+    )
+
+    await callback.message.answer(
+        "👑 <b>VIP ACCESS ACTIVE</b>\n\n"
+        "Your VIP access is active and your onboarding journey is complete.\n\n"
+        "✅ All 5 VIP journey steps completed\n"
+        "🎯 You can now access VIP features from your dashboard.",
+        reply_markup=keyboard,
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:daily_picks")
+async def handle_daily_picks(
+    callback: CallbackQuery,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    await callback.message.answer(
+        "🎯 <b>DAILY PICKS</b>\n\n"
+        "🔥 Today's VIP picks will appear here.\n\n"
+        "📊 Match intelligence\n"
+        "⚡ Live insights\n"
+        "🎯 High-confidence selections\n\n"
+        "More VIP intelligence is coming soon.",
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:home")
+async def handle_home(
+    callback: CallbackQuery,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    await callback.message.answer(
+        "🏠 <b>MAIN MENU</b>\n\n"
+        "Welcome back to <b>SPIDY’S ADMIN</b>.\n\n"
+        "Choose an option below 👇",
+        reply_markup=build_main_menu_keyboard(),
+    )
+
+    await callback.answer()
