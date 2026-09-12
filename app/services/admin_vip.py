@@ -5,12 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.repositories.audit_log import AuditLogRepository
 from app.repositories.onboarding import OnboardingRepository
+from app.repositories.user import UserRepository
 
 
 @dataclass(slots=True, frozen=True)
 class AdminVipApprovalResult:
     granted: bool
     reason: str
+    telegram_user_id: int | None = None
 
 
 class AdminVipService:
@@ -29,6 +31,7 @@ class AdminVipService:
         async with self._session_factory() as session:
             onboarding_repository = OnboardingRepository(session)
             audit_repository = AuditLogRepository(session)
+            user_repository = UserRepository(session)
 
             state = await onboarding_repository.get_by_user_id(
                 user_id=user_id,
@@ -67,9 +70,12 @@ class AdminVipService:
                 details="VIP access granted by super admin",
             )
 
+            user = await user_repository.get_by_id(user_id=user_id)
+
             await session.commit()
 
             return AdminVipApprovalResult(
                 granted=True,
                 reason="granted",
+                telegram_user_id=user.telegram_user_id if user is not None else None,
             )

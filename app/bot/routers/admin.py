@@ -1,4 +1,4 @@
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -135,6 +135,7 @@ async def handle_pending_vip_approvals(
 async def handle_vip_approve(
     callback: CallbackQuery,
     admin_vip_service: AdminVipService,
+    bot: Bot,
 ) -> None:
     if not _is_super_admin(callback.from_user.id):
         await callback.answer(
@@ -179,6 +180,16 @@ async def handle_vip_approve(
             show_alert=True,
         )
         return
+
+    if result.telegram_user_id is not None:
+        await bot.send_message(
+            chat_id=result.telegram_user_id,
+            text=(
+                "👑 <b>VIP ACCESS GRANTED</b>\n\n"
+                "Your VIP access has been approved successfully.\n"
+                "Open your dashboard to continue."
+            ),
+        )
 
     await callback.answer(
         "✅ VIP access granted",
