@@ -1,4 +1,5 @@
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.middlewares.membership import MembershipRequiredMiddleware
@@ -8,6 +9,7 @@ from app.bot.routers.start import router as start_router
 from app.gateways.telegram_membership import TelegramMembershipGateway
 from app.services.admin_vip import AdminVipService
 from app.services.audit_log import AuditLogService
+from app.services.daily_pick import DailyPickService
 from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingService
 from app.services.user import UserService
@@ -20,6 +22,7 @@ def create_dispatcher(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> Dispatcher:
     dispatcher = Dispatcher(
+        storage=MemoryStorage(),
         user_service=UserService(session_factory),
         membership_service=MembershipService(
             session_factory=session_factory,
@@ -29,6 +32,7 @@ def create_dispatcher(
         vip_category_service=VipCategoryService(session_factory),
         audit_log_service=AuditLogService(session_factory),
         admin_vip_service=AdminVipService(session_factory),
+        daily_pick_service=DailyPickService(session_factory),
     )
 
     menu_router.message.outer_middleware(

@@ -6,6 +6,7 @@ from app.bot.views.dashboard import send_vip_dashboard
 from app.bot.views.language import send_language_menu
 from app.bot.views.membership import send_membership_gate
 from app.bot.views.vip_category import send_vip_categories
+from app.services.daily_pick import DailyPickService
 from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingProgress, OnboardingService
 from app.services.user import UserService
@@ -607,17 +608,62 @@ async def handle_vip_active(
 @router.callback_query(F.data == "menu:daily_picks")
 async def handle_daily_picks(
     callback: CallbackQuery,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+    daily_pick_service: DailyPickService,
 ) -> None:
     if not isinstance(callback.message, Message):
         return
 
+    user = await user_service.upsert_from_telegram(
+        callback.from_user,
+    )
+
+    progress = await onboarding_service.get_progress(
+        user_id=user.id,
+    )
+
+    if progress.state.vip_access_granted_at is None:
+        await callback.answer(
+            "⛔ VIP access required",
+            show_alert=True,
+        )
+        return
+
+    picks = await daily_pick_service.list_published()
+
+    if not picks:
+        await callback.message.answer(
+            "🎯 <b>DAILY PICKS</b>\n\n"
+            "No VIP picks have been published yet.\n"
+            "Check back soon.",
+        )
+        await callback.answer()
+        return
+
+    lines = [
+        "🎯 <b>DAILY VIP PICKS</b>",
+        "",
+    ]
+
+    for pick in picks:
+        lines.append(
+            f"🏟 <b>{pick.event_title}</b>\n"
+            f"🏅 Sport: {pick.sport}\n"
+            f"🎯 Pick: <b>{pick.selection}</b>\n"
+            f"🔥 Confidence: <b>{pick.confidence}%</b>"
+        )
+
+        if pick.odds is not None:
+            lines.append(f"📈 Odds: <b>{pick.odds}</b>")
+
+        if pick.analysis:
+            lines.append(f"📝 {pick.analysis}")
+
+        lines.append("")
+
     await callback.message.answer(
-        "🎯 <b>DAILY PICKS</b>\n\n"
-        "🔥 Today's VIP picks will appear here.\n\n"
-        "📊 Match intelligence\n"
-        "⚡ Live insights\n"
-        "🎯 High-confidence selections\n\n"
-        "More VIP intelligence is coming soon.",
+        "\n".join(lines),
     )
 
     await callback.answer()
