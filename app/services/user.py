@@ -14,6 +14,17 @@ class UserService:
     ) -> None:
         self._session_factory = session_factory
 
+    async def get_by_ids(
+        self,
+        user_ids: list[int],
+    ) -> list[User]:
+        async with self._session_factory() as session:
+            repository = UserRepository(session)
+
+            return await repository.get_by_ids(
+                user_ids
+            )
+
     async def set_locale(
         self,
         *,

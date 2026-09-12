@@ -524,3 +524,42 @@ async def handle_contact_verified(
         progress=progress,
         selected_category=selected_category,
     )
+
+@router.callback_query(F.data == "menu:vip_pending")
+async def handle_vip_pending(
+    callback: CallbackQuery,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👑 MY VIP DASHBOARD",
+                    callback_data="menu:my_vip",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 VIP SUPPORT",
+                    callback_data="menu:support",
+                ),
+                InlineKeyboardButton(
+                    text="🏠 MAIN MENU",
+                    callback_data="menu:home",
+                ),
+            ],
+        ]
+    )
+
+    await callback.message.answer(
+        "⏳ <b>VIP APPROVAL PENDING</b>\n\n"
+        "Your registration and contact verification are complete.\n\n"
+        "✅ 4 of 5 VIP journey steps completed\n"
+        "👑 Final VIP access requires admin approval.\n\n"
+        "You do not need to complete any additional steps right now.",
+        reply_markup=keyboard,
+    )
+
+    await callback.answer()

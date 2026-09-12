@@ -8,6 +8,17 @@ from app.repositories.onboarding import OnboardingRepository
 
 
 @dataclass(slots=True, frozen=True)
+class PendingVipApproval:
+    user_id: int
+
+
+@dataclass(slots=True, frozen=True)
+class VipGrantResult:
+    granted: bool
+    reason: str
+
+
+@dataclass(slots=True, frozen=True)
 class OnboardingProgress:
     completed_steps: int
     total_steps: int
@@ -105,6 +116,65 @@ class OnboardingService:
             )
 
             await session.commit()
+
+    async def grant_vip_access(
+        self,
+        *,
+        user_id: int,
+    ) -> VipGrantResult:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+
+            state = await repository.get_by_user_id(
+                user_id=user_id,
+            )
+
+            if state is None:
+                return VipGrantResult(
+                    granted=False,
+                    reason="onboarding_not_found",
+                )
+
+            if state.vip_access_granted_at is not None:
+                return VipGrantResult(
+                    granted=False,
+                    reason="already_granted",
+                )
+
+            if state.contact_verified_at is None:
+                return VipGrantResult(
+                    granted=False,
+                    reason="contact_not_verified",
+                )
+
+            granted_at = datetime.now(UTC)
+
+            await repository.set_vip_access_granted(
+                user_id=user_id,
+                granted_at=granted_at,
+            )
+
+            await session.commit()
+
+            return VipGrantResult(
+                granted=True,
+                reason="granted",
+            )
+
+    async def list_pending_vip_approvals(
+        self,
+    ) -> list[PendingVipApproval]:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+
+            rows = await repository.list_pending_vip_approvals()
+
+            return [
+                PendingVipApproval(
+                    user_id=row.user_id,
+                )
+                for row in rows
+            ]
 
     async def get_progress(
         self,

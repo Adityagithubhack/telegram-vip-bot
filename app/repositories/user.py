@@ -79,3 +79,18 @@ class UserRepository:
 
         result = await self._session.execute(statement)
         return result.scalar_one()
+
+    async def get_by_ids(
+        self,
+        user_ids: list[int],
+    ) -> list[User]:
+        if not user_ids:
+            return []
+
+        result = await self._session.execute(
+            select(User).where(
+                User.id.in_(user_ids)
+            )
+        )
+
+        return list(result.scalars().all())

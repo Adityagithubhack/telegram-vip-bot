@@ -3,13 +3,30 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from app.services.onboarding import OnboardingProgress
 
 
-def build_dashboard_keyboard() -> InlineKeyboardMarkup:
+def build_dashboard_keyboard(
+    progress: OnboardingProgress,
+) -> InlineKeyboardMarkup:
+    state = progress.state
+
+    if state.registration_completed_at is None:
+        primary_text = "📝 COMPLETE REGISTRATION"
+        primary_callback = "menu:registration"
+    elif state.contact_verified_at is None:
+        primary_text = "📞 VERIFY CONTACT"
+        primary_callback = "menu:contact_verification"
+    elif state.vip_access_granted_at is None:
+        primary_text = "⏳ AWAITING VIP APPROVAL"
+        primary_callback = "menu:vip_pending"
+    else:
+        primary_text = "👑 VIP ACTIVE"
+        primary_callback = "menu:vip_active"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚀 GET VIP ACCESS",
-                    callback_data="menu:contact_verification",
+                    text=primary_text,
+                    callback_data=primary_callback,
                 )
             ],
             [
@@ -72,5 +89,5 @@ async def send_vip_dashboard(
         f"{_step_icon(state.contact_verified_at is not None)} Contact Verification\n"
         f"{_step_icon(state.vip_access_granted_at is not None)} VIP Access\n\n"
         f"➡️ <b>NEXT STEP:</b> {progress.next_step}",
-        reply_markup=build_dashboard_keyboard(),
+        reply_markup=build_dashboard_keyboard(progress),
     )

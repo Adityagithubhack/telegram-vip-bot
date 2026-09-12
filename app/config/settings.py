@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    super_admin_telegram_id: int | None = None
+
     @property
     def is_production(self) -> bool:
         return self.environment is Environment.PRODUCTION

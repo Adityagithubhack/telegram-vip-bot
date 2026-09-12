@@ -45,6 +45,24 @@ class OnboardingRepository:
 
         return result.scalar_one()
 
+    async def list_pending_vip_approvals(
+        self,
+    ) -> list[UserOnboarding]:
+        result = await self._session.execute(
+            select(UserOnboarding)
+            .where(
+                UserOnboarding.contact_verified_at.is_not(None),
+                UserOnboarding.vip_access_granted_at.is_(None),
+            )
+            .order_by(
+                UserOnboarding.contact_verified_at.asc(),
+                UserOnboarding.user_id.asc(),
+            )
+        )
+
+        return list(result.scalars().all())
+
+
     async def set_language_selected(
         self,
         *,
@@ -104,5 +122,20 @@ class OnboardingRepository:
             .values(
                 contact_verified_at=verified_at,
                 updated_at=verified_at,
+            )
+        )
+
+    async def set_vip_access_granted(
+        self,
+        *,
+        user_id: int,
+        granted_at: datetime,
+    ) -> None:
+        await self._session.execute(
+            update(UserOnboarding)
+            .where(UserOnboarding.user_id == user_id)
+            .values(
+                vip_access_granted_at=granted_at,
+                updated_at=granted_at,
             )
         )
