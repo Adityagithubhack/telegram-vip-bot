@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infra.db.models.daily_pick import DailyPick
+from app.repositories.audit_log import AuditLogRepository
 from app.repositories.daily_pick import DailyPickRepository
 
 
@@ -45,10 +46,12 @@ class DailyPickService:
     async def publish_pick(
         self,
         *,
+        actor_telegram_user_id: int,
         pick_id: int,
     ) -> DailyPick | None:
         async with self._session_factory() as session:
             repository = DailyPickRepository(session)
+            audit_repository = AuditLogRepository(session)
 
             pick = await repository.publish(
                 pick_id=pick_id,
@@ -57,6 +60,14 @@ class DailyPickService:
 
             if pick is None:
                 return None
+
+            audit_repository.add(
+                actor_telegram_user_id=actor_telegram_user_id,
+                action="daily_pick_published",
+                target_type="daily_pick",
+                target_id=str(pick.id),
+                details=f"Published daily pick: {pick.event_title}",
+            )
 
             await session.commit()
 

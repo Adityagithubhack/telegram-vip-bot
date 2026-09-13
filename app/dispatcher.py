@@ -14,6 +14,7 @@ from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingService
 from app.services.user import UserService
 from app.services.vip_category import VipCategoryService
+from app.services.vip_menu_settings import VipMenuSettingsService
 
 
 def create_dispatcher(
@@ -30,6 +31,7 @@ def create_dispatcher(
         ),
         onboarding_service=OnboardingService(session_factory),
         vip_category_service=VipCategoryService(session_factory),
+        vip_menu_settings_service=VipMenuSettingsService(session_factory),
         audit_log_service=AuditLogService(session_factory),
         admin_vip_service=AdminVipService(session_factory),
         daily_pick_service=DailyPickService(session_factory),

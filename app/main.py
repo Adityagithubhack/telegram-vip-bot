@@ -1,6 +1,7 @@
 import asyncio
 
 import structlog
+from aiogram.types import BotCommand
 
 from app.bot.factory import create_bot
 from app.config.settings import BotMode, get_settings
@@ -22,6 +23,20 @@ async def run_polling() -> None:
     log = structlog.get_logger(__name__)
 
     try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Start your premium experience"),
+                BotCommand(command="menu", description="Open the main menu"),
+                BotCommand(command="vip", description="Explore VIP options"),
+                BotCommand(command="myvip", description="Open your VIP dashboard"),
+                BotCommand(command="dailypicks", description="View today's VIP picks"),
+                BotCommand(command="compare", description="Compare VIP options"),
+                BotCommand(command="howitworks", description="See how VIP access works"),
+                BotCommand(command="language", description="Change your language"),
+                BotCommand(command="support", description="Contact VIP support"),
+            ]
+        )
+
         bot_info = await bot.get_me()
 
         log.info(

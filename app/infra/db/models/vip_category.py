@@ -24,9 +24,24 @@ class VipCategory(Base):
         String(128),
         nullable=False,
     )
+    display_name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+    )
+
 
     description_key: Mapped[str | None] = mapped_column(
         String(255),
+        nullable=True,
+    )
+
+    vip_info: Mapped[str | None] = mapped_column(
+        String(4000),
+        nullable=True,
+    )
+
+    compare_info: Mapped[str | None] = mapped_column(
+        String(4000),
         nullable=True,
     )
 
@@ -35,6 +50,31 @@ class VipCategory(Base):
         default=100,
         server_default="100",
         nullable=False,
+    )
+
+    registration_url: Mapped[str | None] = mapped_column(
+        String(2048),
+        nullable=True,
+    )
+
+    promo_code: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
+
+    support_username: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    media_file_id: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+
+    media_type: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
     )
 
     is_active: Mapped[bool] = mapped_column(

@@ -1,0 +1,37 @@
+from aiogram.fsm.state import State, StatesGroup
+
+
+class VipSettingsStates(StatesGroup):
+    waiting_for_media = State()
+    waiting_for_registration_url = State()
+    waiting_for_promo_code = State()
+    waiting_for_support_username = State()
+    waiting_for_vip_info = State()
+    waiting_for_vip_menu_heading = State()
+    waiting_for_vip_menu_description = State()
+    waiting_for_vip_menu_footer = State()
+    waiting_for_display_name = State()
+    waiting_for_new_vip_name = State()
+    waiting_for_new_vip_info = State()
+    waiting_for_compare_info = State()
+    waiting_for_compare_heading = State()
+    waiting_for_compare_intro = State()
+    waiting_for_free_vs_vip_heading = State()
+    waiting_for_live_bets_heading = State()
+    waiting_for_live_bets_info = State()
+    waiting_for_live_bets_media = State()
+    waiting_for_pre_match_bets_heading = State()
+    waiting_for_pre_match_bets_media = State()
+    waiting_for_pre_match_bets_info = State()
+    waiting_for_free_vs_vip_info = State()
+    waiting_for_free_vs_vip_promo = State()
+    waiting_for_free_vs_vip_support = State()
+    waiting_for_new_vip_sort_order = State()
+    waiting_for_new_vip_code = State()
+    waiting_for_new_vip_compare_info = State()
+    waiting_for_new_vip_registration_url = State()
+    waiting_for_new_vip_promo_code = State()
+    waiting_for_new_vip_support_username = State()
+    waiting_for_new_vip_media = State()
+
+

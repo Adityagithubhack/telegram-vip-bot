@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -5,12 +7,16 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from app.bot.views.dashboard import send_vip_dashboard
 from app.bot.views.language import send_language_menu
 from app.bot.views.membership import send_membership_gate
-from app.bot.views.vip_category import send_vip_categories
+from app.bot.views.vip_category import (
+    send_vip_categories,
+    send_vip_category_detail,
+)
 from app.services.daily_pick import DailyPickService
 from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingProgress, OnboardingService
 from app.services.user import UserService
 from app.services.vip_category import VipCategoryService
+from app.services.vip_menu_settings import VipMenuSettingsService
 
 router = Router(name="menu")
 
@@ -52,6 +58,16 @@ def build_main_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="🆚 FREE vs VIP",
                     callback_data="menu:free_vs_vip",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔴 LIVE BETS",
+                    callback_data="menu:live_bets",
+                ),
+                InlineKeyboardButton(
+                    text="🎯 PRE-MATCH BETS",
+                    callback_data="menu:pre_match_bets",
                 ),
             ],
             [
@@ -307,21 +323,65 @@ async def handle_language_selection(
 async def handle_vip_options(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
+    vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if not isinstance(callback.message, Message):
         return
 
     categories = await vip_category_service.list_active()
+    menu_settings = await vip_menu_settings_service.get()
 
     await callback.answer()
 
     await send_vip_categories(
         callback.message,
         categories=categories,
+        settings=menu_settings,
     )
 
 
 @router.callback_query(F.data.startswith("vip_category:"))
+async def handle_vip_category_details(
+    callback: CallbackQuery,
+    vip_category_service: VipCategoryService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    if callback.data is None:
+        return
+
+    raw_category_id = callback.data.split(":", maxsplit=1)[1]
+
+    try:
+        vip_category_id = int(raw_category_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid VIP category",
+            show_alert=True,
+        )
+        return
+
+    category = await vip_category_service.get_by_id(
+        category_id=vip_category_id,
+    )
+
+    if category is None:
+        await callback.answer(
+            "VIP category not found",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer()
+
+    await send_vip_category_detail(
+        callback.message,
+        category=category,
+    )
+
+
+@router.callback_query(F.data.startswith("vip_category_select:"))
 async def handle_vip_category_selection(
     callback: CallbackQuery,
     user_service: UserService,
@@ -366,6 +426,7 @@ async def handle_vip_category_selection(
         first_name=user.first_name or "VIP USER",
         progress=progress,
     )
+
 
 @router.callback_query(F.data == "menu:registration")
 async def handle_registration(
@@ -684,3 +745,386 @@ async def handle_home(
     )
 
     await callback.answer()
+
+
+@router.callback_query(F.data == "menu:compare")
+async def handle_compare_vip(
+    callback: CallbackQuery,
+    vip_category_service: VipCategoryService,
+    vip_menu_settings_service: VipMenuSettingsService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    categories = await vip_category_service.list_active()
+    settings = await vip_menu_settings_service.get()
+
+    if not categories:
+        await callback.message.answer(
+            "📊 <b>COMPARE VIP OPTIONS</b>\n\n"
+            "No VIP options are available right now.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="💎 VIP OPTIONS",
+                            callback_data="menu:vip_options",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🏠 MAIN MENU",
+                            callback_data="menu:home",
+                        )
+                    ],
+                ]
+            ),
+        )
+        await callback.answer()
+        return
+
+    heading = escape(
+        settings.compare_heading
+        if settings and settings.compare_heading
+        else "COMPARE VIP OPTIONS"
+    )
+
+    intro = escape(
+        settings.compare_intro
+        if settings and settings.compare_intro
+        else "Compare the available VIP experiences below."
+    )
+
+    lines = [
+        f"📊 <b>{heading}</b>",
+        "",
+        intro,
+        "",
+        "━━━━━━━━━━━━━━━━━━",
+    ]
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+
+    for category in categories:
+        display_name = escape(category.display_name)
+
+        compare_info = (
+            escape(category.compare_info)
+            if category.compare_info
+            else "Comparison information coming soon."
+        )
+
+        lines.extend(
+            [
+                "",
+                f"💎 <b>{display_name}</b>",
+                compare_info,
+            ]
+        )
+
+        if category.promo_code:
+            lines.append(
+                "🎁 <b>Promo Code:</b> "
+                f"<code>{escape(category.promo_code)}</code>"
+            )
+
+        if category.support_username:
+            lines.append(
+                "💬 <b>Support:</b> "
+                f"@{escape(category.support_username)}"
+            )
+
+        lines.append("")
+        lines.append("━━━━━━━━━━━━━━━━━━")
+
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"✅ {category.display_name} — SELECT THIS VIP",
+                    callback_data=f"vip_category:{category.id}",
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔴 LIVE BETS",
+                callback_data="menu:live_bets",
+            ),
+            InlineKeyboardButton(
+                text="🎯 PRE-MATCH BETS",
+                callback_data="menu:pre_match_bets",
+            ),
+        ]
+    )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="💎 VIP OPTIONS",
+                callback_data="menu:vip_options",
+            )
+        ]
+    )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🏠 MAIN MENU",
+                callback_data="menu:home",
+            )
+        ]
+    )
+
+    await callback.message.answer(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=keyboard_rows
+        ),
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:free_vs_vip")
+async def handle_free_vs_vip(
+    callback: CallbackQuery,
+    vip_menu_settings_service: VipMenuSettingsService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    settings = await vip_menu_settings_service.get()
+
+    heading = escape(
+        settings.free_vs_vip_heading
+        if settings and settings.free_vs_vip_heading
+        else "FREE vs VIP"
+    )
+
+    info = escape(
+        settings.free_vs_vip_info
+        if settings and settings.free_vs_vip_info
+        else (
+            "Compare the free experience with VIP access "
+            "and choose what suits you best."
+        )
+    )
+
+    lines = [
+        f"🆚 <b>{heading}</b>",
+        "",
+        info,
+    ]
+
+    if settings and settings.free_vs_vip_promo_code:
+        lines.extend(
+            [
+                "",
+                "🎁 <b>Promo Code:</b> "
+                f"<code>{escape(settings.free_vs_vip_promo_code)}</code>",
+            ]
+        )
+
+    if settings and settings.free_vs_vip_support_username:
+        lines.extend(
+            [
+                "",
+                "💬 <b>Support:</b> "
+                f"@{escape(settings.free_vs_vip_support_username)}",
+            ]
+        )
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text="🚀 UPGRADE TO VIP",
+                callback_data="menu:vip_options",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📊 COMPARE VIP",
+                callback_data="menu:compare",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="💎 VIP OPTIONS",
+                callback_data="menu:vip_options",
+            )
+        ],
+    ]
+
+    if settings and settings.free_vs_vip_support_username:
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="💬 VIP SUPPORT",
+                    url=(
+                        "https://t.me/"
+                        f"{settings.free_vs_vip_support_username}"
+                    ),
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🏠 MAIN MENU",
+                callback_data="menu:home",
+            )
+        ]
+    )
+
+    await callback.message.answer(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=keyboard_rows
+        ),
+    )
+
+    await callback.answer()
+
+
+
+
+@router.callback_query(F.data == "menu:live_bets")
+async def handle_live_bets(
+    callback: CallbackQuery,
+    vip_menu_settings_service: VipMenuSettingsService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    settings = await vip_menu_settings_service.get()
+
+    heading = escape(
+        settings.live_bets_heading
+        if settings and settings.live_bets_heading
+        else "LIVE BETS"
+    )
+
+    info = escape(
+        settings.live_bets_info
+        if settings and settings.live_bets_info
+        else "Live betting insights will appear here when configured."
+    )
+
+    if settings is not None and settings.live_bets_media_file_id:
+        if settings.live_bets_media_type == "video":
+            await callback.message.answer_video(
+                video=settings.live_bets_media_file_id,
+            )
+        elif settings.live_bets_media_type == "photo":
+            await callback.message.answer_photo(
+                photo=settings.live_bets_media_file_id,
+            )
+
+    await callback.message.answer(
+        f"🔴 <b>{heading}</b>\n\n"
+        f"{info}\n\n"
+        "No prediction or outcome is guaranteed.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🎯 PRE-MATCH BETS",
+                        callback_data="menu:pre_match_bets",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📊 COMPARE VIP",
+                        callback_data="menu:compare",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="💎 VIP OPTIONS",
+                        callback_data="menu:vip_options",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🏠 MAIN MENU",
+                        callback_data="menu:home",
+                    )
+                ],
+            ]
+        ),
+    )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "menu:pre_match_bets")
+async def handle_pre_match_bets(
+    callback: CallbackQuery,
+    vip_menu_settings_service: VipMenuSettingsService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    settings = await vip_menu_settings_service.get()
+
+    heading = escape(
+        settings.pre_match_bets_heading
+        if settings and settings.pre_match_bets_heading
+        else "PRE-MATCH BETS"
+    )
+
+    info = escape(
+        settings.pre_match_bets_info
+        if settings and settings.pre_match_bets_info
+        else "Pre-match insights will appear here when configured."
+    )
+
+    if settings is not None and settings.pre_match_bets_media_file_id:
+        if settings.pre_match_bets_media_type == "video":
+            await callback.message.answer_video(
+                video=settings.pre_match_bets_media_file_id,
+            )
+        elif settings.pre_match_bets_media_type == "photo":
+            await callback.message.answer_photo(
+                photo=settings.pre_match_bets_media_file_id,
+            )
+
+    await callback.message.answer(
+        f"🎯 <b>{heading}</b>\n\n"
+        f"{info}\n\n"
+        "No prediction or outcome is guaranteed.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔴 LIVE BETS",
+                        callback_data="menu:live_bets",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📊 COMPARE VIP",
+                        callback_data="menu:compare",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="💎 VIP OPTIONS",
+                        callback_data="menu:vip_options",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🏠 MAIN MENU",
+                        callback_data="menu:home",
+                    )
+                ],
+            ]
+        ),
+    )
+
+    await callback.answer()
+

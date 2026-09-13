@@ -6,6 +6,7 @@ from app.infra.db.models.membership_check import MembershipCheck
 from app.infra.db.models.user import User
 from app.infra.db.models.user_onboarding import UserOnboarding
 from app.infra.db.models.vip_category import VipCategory
+from app.infra.db.models.vip_menu_settings import VipMenuSettings
 
 __all__ = [
     "DailyPick",
@@ -16,4 +17,5 @@ __all__ = [
     "User",
     "UserOnboarding",
     "VipCategory",
+    "VipMenuSettings",
 ]
