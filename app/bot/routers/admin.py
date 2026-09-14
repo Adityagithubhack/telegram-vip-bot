@@ -1778,7 +1778,7 @@ async def handle_vip_name_change(
             f"Current name: <b>{escape(category.display_name)}</b>\n\n"
             "Send the new VIP name.\n\n"
             "Example:\n"
-            "<code>SPIDY PRO VIP</code>"
+            "<code>PREMIUM VIP</code>"
         )
 
     await callback.answer()
@@ -2685,7 +2685,7 @@ async def handle_free_vs_vip_support_change(
         await callback.message.answer(
             "💬 <b>CHANGE FREE vs VIP SUPPORT</b>\n\n"
             "Send Telegram username.\n"
-            "Example: <code>spidysupport</code>"
+            "Example: <code>your_support_username</code>"
         )
 
     await callback.answer()

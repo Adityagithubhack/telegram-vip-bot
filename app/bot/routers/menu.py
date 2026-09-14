@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from html import escape
 
 from aiogram import F, Router
@@ -12,6 +14,7 @@ from app.bot.views.vip_category import (
     send_vip_category_detail,
 )
 from app.i18n.translations import t
+from app.config.settings import get_settings
 from app.services.content_screen_settings import ContentScreenSettingsService
 from app.services.daily_pick import DailyPickService
 from app.services.membership import MembershipService
@@ -1533,8 +1536,7 @@ async def handle_referral(
                 url=(
                     "https://t.me/share/url"
                     f"?url={referral_link}"
-                    "&text=Join%20SPIDY%20SPORTS%20INTELLIGENCE"
-                    "%20with%20my%20referral%20link"
+                    f"&text={quote(f'Join {get_settings().brand_name} with my referral link')}"
                 ),
             )
         ]
@@ -1681,7 +1683,7 @@ async def handle_home(
 
     await callback.message.answer(
         "🏠 <b>MAIN MENU</b>\n\n"
-        "Welcome back to <b>SPIDY’S ADMIN</b>.\n\n"
+        f"Welcome back to <b>{get_settings().admin_brand_name}</b>.\n\n"
         "Choose an option below 👇",
         reply_markup=build_main_menu_keyboard(),
     )

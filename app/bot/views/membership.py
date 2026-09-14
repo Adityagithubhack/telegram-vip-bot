@@ -2,6 +2,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.services.membership import MembershipDecision
 
+from app.config.settings import get_settings
+
 
 def build_membership_keyboard(
     decision: MembershipDecision,
@@ -46,7 +48,7 @@ async def send_membership_gate(
     decision: MembershipDecision,
 ) -> None:
     lines = [
-        "🏆 <b>SPIDY’S ADMIN</b>",
+        f"🏆 <b>{get_settings().admin_brand_name}</b>",
         "",
         "🔒 <b>ONE STEP BEFORE YOUR ACCESS</b>",
         "",

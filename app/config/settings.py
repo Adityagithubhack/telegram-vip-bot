@@ -39,6 +39,10 @@ class Settings(BaseSettings):
 
     super_admin_telegram_id: int | None = None
 
+    # White-label branding
+    brand_name: str = "SPIDY SPORTS INTELLIGENCE"
+    admin_brand_name: str = "SPIDY’S ADMIN"
+
     @property
     def is_production(self) -> bool:
         return self.environment is Environment.PRODUCTION

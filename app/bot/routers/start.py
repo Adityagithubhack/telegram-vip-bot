@@ -4,6 +4,8 @@ from aiogram.types import CallbackQuery, Message
 
 from app.bot.routers.menu import send_main_menu
 from app.bot.views.membership import send_membership_gate
+
+from app.config.settings import get_settings
 from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingService
 from app.services.referral import ReferralService
@@ -46,7 +48,7 @@ async def handle_start(
 
     if not decision.channels:
         await message.answer(
-            "👋 <b>Welcome to SPIDY’S ADMIN</b>\n\n"
+            f"👋 <b>Welcome to {get_settings().admin_brand_name}</b>\n\n"
             "No required channels are configured yet."
         )
         return

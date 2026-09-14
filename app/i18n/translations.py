@@ -1,3 +1,5 @@
+from app.config.settings import get_settings
+
 SUPPORTED_LANGUAGES = {
     "en": "English",
     "hi": "Hindi",
@@ -1070,13 +1072,23 @@ TRANSLATIONS = {
 
 def t(locale: str | None, key: str, **kwargs) -> str:
     language = locale if locale in SUPPORTED_LANGUAGES else "en"
-
     value = TRANSLATIONS.get(language, {}).get(key)
 
     if value is None:
         value = TRANSLATIONS["en"].get(key, key)
 
+    settings = get_settings()
+
+    value = value.replace(
+        "SPIDY SPORTS INTELLIGENCE",
+        settings.brand_name,
+    ).replace(
+        "SPIDY’S ADMIN",
+        settings.admin_brand_name,
+    )
+
     if kwargs:
         return value.format(**kwargs)
 
     return value
+
