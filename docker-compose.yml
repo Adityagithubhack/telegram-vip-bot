@@ -1,26 +1,30 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: telegram_vip_postgres
+    container_name: ${COMPOSE_PROJECT_NAME:-telegram_vip}_postgres
     environment:
-      POSTGRES_DB: telegram_vip
-      POSTGRES_USER: telegram_vip
-      POSTGRES_PASSWORD: telegram_vip_dev_password
+      POSTGRES_DB: ${POSTGRES_DB:-telegram_vip}
+      POSTGRES_USER: ${POSTGRES_USER:-telegram_vip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telegram_vip_dev_password}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U telegram_vip -d telegram_vip"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-telegram_vip} -d ${POSTGRES_DB:-telegram_vip}"
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: telegram_vip_redis
+    container_name: ${COMPOSE_PROJECT_NAME:-telegram_vip}_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
