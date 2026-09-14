@@ -47,9 +47,13 @@ async def handle_start(
     )
 
     if not decision.channels:
-        await message.answer(
-            f"👋 <b>Welcome to {get_settings().admin_brand_name}</b>\n\n"
-            "No required channels are configured yet."
+        progress = await onboarding_service.get_progress(
+            user_id=user.id,
+        )
+        await send_main_menu(
+            message,
+            progress=progress,
+            locale=user.locale,
         )
         return
 

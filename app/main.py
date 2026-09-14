@@ -8,6 +8,7 @@ from app.config.settings import BotMode, get_settings
 from app.core.logging import configure_logging
 from app.dispatcher import create_dispatcher
 from app.infra.db.session import create_session_factory
+from app.services.admin import AdminService
 
 
 async def run_polling() -> None:
@@ -15,6 +16,12 @@ async def run_polling() -> None:
 
     bot = create_bot(settings.bot_token.get_secret_value())
     session_factory = create_session_factory(settings)
+
+    if settings.super_admin_telegram_id is not None:
+        admin_service = AdminService(session_factory)
+        await admin_service.ensure_owner(
+            settings.super_admin_telegram_id
+        )
     dispatcher = create_dispatcher(
         bot=bot,
         session_factory=session_factory,

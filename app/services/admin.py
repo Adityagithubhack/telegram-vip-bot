@@ -22,6 +22,32 @@ class AdminService:
                 telegram_user_id
             )
 
+    async def ensure_owner(
+        self,
+        telegram_user_id: int,
+    ) -> BotAdmin:
+        async with self._session_factory() as session:
+            repository = BotAdminRepository(session)
+
+            existing = await repository.get_by_telegram_id(
+                telegram_user_id
+            )
+
+            if existing is not None:
+                existing.role = "owner"
+                existing.is_active = True
+                await session.commit()
+                await session.refresh(existing)
+                return existing
+
+            owner = await repository.add(
+                telegram_user_id=telegram_user_id,
+                role="owner",
+            )
+            await session.commit()
+            await session.refresh(owner)
+            return owner
+
     async def is_owner(
         self,
         telegram_user_id: int,

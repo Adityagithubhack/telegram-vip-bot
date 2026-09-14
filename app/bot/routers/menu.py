@@ -186,8 +186,13 @@ async def handle_menu(
     )
 
     if not decision.channels:
-        await message.answer(
-            "⚠️ No required channels are configured."
+        progress = await onboarding_service.get_progress(
+            user_id=user.id,
+        )
+        await send_main_menu(
+            message,
+            progress=progress,
+            locale=user.locale,
         )
         return
 
