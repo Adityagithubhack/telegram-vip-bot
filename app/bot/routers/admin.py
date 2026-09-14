@@ -1,30 +1,31 @@
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.exceptions import TelegramBadRequest
 
+from app.bot.states.admin_management import AdminManagementStates
+from app.bot.states.content_settings import (
+    ContentSettingsStates,
+    ReferralSettingsStates,
+)
 from app.bot.states.daily_pick import DailyPickStates
 from app.bot.states.vip_settings import VipSettingsStates
-from app.config.settings import get_settings
+from app.services.admin import AdminService
+from app.services.audit_log import AuditLogService
+from app.services.content_screen_settings import ContentScreenSettingsService
 from app.services.admin_vip import AdminVipService
 from app.services.daily_pick import DailyPickService
 from app.services.onboarding import OnboardingService
+from app.services.referral import ReferralService
 from app.services.user import UserService
 from app.services.vip_category import VipCategoryService
 from app.services.vip_menu_settings import VipMenuSettingsService
 
 router = Router(name="admin")
-
-
-def _is_super_admin(telegram_user_id: int) -> bool:
-    settings = get_settings()
-
-    return (
-        settings.super_admin_telegram_id is not None
-        and telegram_user_id == settings.super_admin_telegram_id
-    )
 
 
 def _admin_keyboard() -> InlineKeyboardMarkup:
@@ -34,6 +35,12 @@ def _admin_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="⏳ PENDING VIP APPROVALS",
                     callback_data="admin:vip_pending",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👥 MANAGE USERS",
+                    callback_data="admin:manage_users",
                 )
             ],
             [
@@ -54,6 +61,74 @@ def _admin_keyboard() -> InlineKeyboardMarkup:
                     callback_data="admin:vip_menu_settings",
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CONTENT SETTINGS",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+
+
+def _content_settings_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎯 WINNING TIPS",
+                    callback_data="admin:content:winning_tips",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔥 TODAY'S INSIGHTS",
+                    callback_data="admin:content:today_insights",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏆 LIVE STATS",
+                    callback_data="admin:content:live_stats",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎁 REFER & EARN",
+                    callback_data="admin:content:referral",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📊 REFERRAL STATS",
+                    callback_data="admin:referral_stats",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📖 HOW IT WORKS",
+                    callback_data="admin:content:how_it_works",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔔 NOTIFICATIONS",
+                    callback_data="admin:content:notifications",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 SUPPORT",
+                    callback_data="admin:content:support",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:back",
+                )
+            ],
         ]
     )
 
@@ -63,13 +138,9 @@ async def handle_admin(message: Message) -> None:
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await message.answer("⛔ You are not authorized.")
-        return
-
     await message.answer(
         "🛡 <b>ADMIN PANEL</b>\n\n"
-        "✅ Super admin access verified.",
+        "✅ Admin access verified.",
         reply_markup=_admin_keyboard(),
     )
 
@@ -80,12 +151,6 @@ async def handle_pending_vip_approvals(
     onboarding_service: OnboardingService,
     user_service: UserService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     pending = await onboarding_service.list_pending_vip_approvals()
 
@@ -163,12 +228,6 @@ async def handle_vip_approve(
     admin_vip_service: AdminVipService,
     bot: Bot,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -234,12 +293,6 @@ async def handle_daily_pick_create(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.clear()
     await state.set_state(DailyPickStates.sport)
@@ -259,7 +312,7 @@ async def daily_pick_sport(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     sport = (message.text or "").strip()
@@ -282,7 +335,7 @@ async def daily_pick_event(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     event_title = (message.text or "").strip()
@@ -305,7 +358,7 @@ async def daily_pick_selection(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     selection = (message.text or "").strip()
@@ -328,7 +381,7 @@ async def daily_pick_confidence(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     try:
@@ -356,7 +409,7 @@ async def daily_pick_odds(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     value = (message.text or "").strip()
@@ -391,7 +444,7 @@ async def daily_pick_analysis(
     message: Message,
     state: FSMContext,
 ) -> None:
-    if message.from_user is None or not _is_super_admin(message.from_user.id):
+    if message.from_user is None:
         return
 
     analysis = (message.text or "").strip()
@@ -447,12 +500,6 @@ async def handle_daily_pick_publish(
     state: FSMContext,
     daily_pick_service: DailyPickService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     data = await state.get_data()
 
@@ -514,12 +561,6 @@ async def handle_daily_pick_cancel(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.clear()
 
@@ -539,12 +580,6 @@ async def handle_vip_settings(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if not isinstance(callback.message, Message):
         return
@@ -601,12 +636,6 @@ async def handle_vip_settings(
 async def handle_admin_home(
     callback: CallbackQuery,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if isinstance(callback.message, Message):
         await callback.message.answer(
@@ -621,12 +650,6 @@ async def handle_vip_category_settings(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if not isinstance(callback.message, Message):
         return
@@ -787,12 +810,6 @@ async def handle_vip_media_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -846,11 +863,6 @@ async def handle_vip_media_upload(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     data = await state.get_data()
@@ -908,12 +920,6 @@ async def handle_vip_registration_link_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -967,11 +973,6 @@ async def handle_vip_registration_link_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     if message.text is None:
@@ -1030,12 +1031,6 @@ async def handle_vip_promo_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -1088,11 +1083,6 @@ async def handle_vip_promo_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     if message.text is None:
@@ -1153,12 +1143,6 @@ async def handle_vip_support_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -1211,11 +1195,6 @@ async def handle_vip_support_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     if message.text is None:
@@ -1280,12 +1259,6 @@ async def handle_vip_info_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -1339,11 +1312,6 @@ async def handle_vip_info_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     if message.text is None:
@@ -1400,12 +1368,6 @@ async def handle_vip_menu_settings(
     callback: CallbackQuery,
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     settings = await vip_menu_settings_service.get()
 
@@ -1538,12 +1500,6 @@ async def handle_change_vip_menu_heading(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_vip_menu_heading
@@ -1567,10 +1523,6 @@ async def save_vip_menu_heading(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        await state.clear()
-        return
-
-    if not _is_super_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1627,12 +1579,6 @@ async def handle_change_vip_menu_description(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_vip_menu_description
@@ -1654,10 +1600,6 @@ async def save_vip_menu_description(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        await state.clear()
-        return
-
-    if not _is_super_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1714,12 +1656,6 @@ async def handle_change_vip_menu_footer(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_vip_menu_footer
@@ -1743,10 +1679,6 @@ async def save_vip_menu_footer(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        await state.clear()
-        return
-
-    if not _is_super_admin(message.from_user.id):
         await state.clear()
         return
 
@@ -1804,12 +1736,6 @@ async def handle_vip_name_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -1868,10 +1794,6 @@ async def save_vip_display_name(
         await state.clear()
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        return
-
     display_name = (message.text or "").strip()
 
     if not display_name:
@@ -1915,12 +1837,6 @@ async def handle_add_new_vip(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_new_vip_name
@@ -1946,11 +1862,6 @@ async def save_new_vip(
 ) -> None:
     if message.from_user is None:
         await state.clear()
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     display_name = (message.text or "").strip()
@@ -1989,9 +1900,6 @@ async def handle_vip_deactivate_confirm(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     if callback.data is None:
         return
@@ -2058,9 +1966,6 @@ async def handle_vip_deactivate(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     if callback.data is None:
         return
@@ -2114,12 +2019,6 @@ async def handle_vip_reactivate(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -2185,9 +2084,6 @@ async def handle_vip_move_up(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     if callback.data is None:
         return
@@ -2240,9 +2136,6 @@ async def handle_vip_move_down(
     callback: CallbackQuery,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     if callback.data is None:
         return
@@ -2296,12 +2189,6 @@ async def handle_vip_compare_info_change(
     state: FSMContext,
     vip_category_service: VipCategoryService,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer(
-            "⛔ Unauthorized",
-            show_alert=True,
-        )
-        return
 
     if callback.data is None:
         return
@@ -2365,11 +2252,6 @@ async def handle_vip_compare_info_input(
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
-        return
-
     if message.text is None:
         await message.answer(
             "❌ Please send the compare info as text."
@@ -2425,9 +2307,6 @@ async def handle_compare_heading_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_compare_heading
@@ -2449,11 +2328,6 @@ async def handle_compare_heading_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     heading = (message.text or "").strip()
@@ -2508,9 +2382,6 @@ async def handle_compare_intro_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_compare_intro
@@ -2532,11 +2403,6 @@ async def handle_compare_intro_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     intro = (message.text or "").strip()
@@ -2591,9 +2457,6 @@ async def handle_free_vs_vip_heading_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_free_vs_vip_heading
@@ -2615,11 +2478,6 @@ async def handle_free_vs_vip_heading_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -2672,9 +2530,6 @@ async def handle_free_vs_vip_info_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_free_vs_vip_info
@@ -2697,11 +2552,6 @@ async def handle_free_vs_vip_info_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -2753,9 +2603,6 @@ async def handle_free_vs_vip_promo_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_free_vs_vip_promo
@@ -2777,11 +2624,6 @@ async def handle_free_vs_vip_promo_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -2834,9 +2676,6 @@ async def handle_free_vs_vip_support_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_free_vs_vip_support
@@ -2859,11 +2698,6 @@ async def handle_free_vs_vip_support_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip().lstrip("@")
@@ -2922,13 +2756,6 @@ async def handle_new_vip_code_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer(
-            "⛔ You are not authorized."
-        )
         return
 
     code = (message.text or "").strip().lower()
@@ -3001,11 +2828,6 @@ async def handle_new_vip_info_input(
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
-        return
-
     vip_info = (message.text or "").strip()
 
     if not vip_info:
@@ -3058,11 +2880,6 @@ async def handle_new_vip_compare_info_input(
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
-        return
-
     compare_info = (message.text or "").strip()
 
     if not compare_info:
@@ -3110,11 +2927,6 @@ async def handle_new_vip_registration_url_input(
     state: FSMContext,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3172,11 +2984,6 @@ async def handle_new_vip_promo_code_input(
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
-        return
-
     value = (message.text or "").strip()
 
     if not value:
@@ -3219,11 +3026,6 @@ async def handle_new_vip_support_username_input(
     state: FSMContext,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3276,11 +3078,6 @@ async def handle_new_vip_media_input(
     if message.from_user is None:
         return
 
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
-        return
-
     media_file_id: str | None = None
     media_type: str | None = None
 
@@ -3324,11 +3121,6 @@ async def handle_new_vip_sort_order_input(
     vip_category_service: VipCategoryService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3468,9 +3260,6 @@ async def handle_live_bets_heading_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(VipSettingsStates.waiting_for_live_bets_heading)
 
@@ -3490,11 +3279,6 @@ async def handle_live_bets_heading_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3547,9 +3331,6 @@ async def handle_live_bets_info_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(VipSettingsStates.waiting_for_live_bets_info)
 
@@ -3570,11 +3351,6 @@ async def handle_live_bets_info_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3624,9 +3400,6 @@ async def handle_pre_match_bets_heading_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_pre_match_bets_heading
@@ -3648,11 +3421,6 @@ async def handle_pre_match_bets_heading_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3705,9 +3473,6 @@ async def handle_pre_match_bets_info_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(VipSettingsStates.waiting_for_pre_match_bets_info)
 
@@ -3728,11 +3493,6 @@ async def handle_pre_match_bets_info_input(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     value = (message.text or "").strip()
@@ -3782,9 +3542,6 @@ async def handle_live_bets_media_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_live_bets_media
@@ -3807,11 +3564,6 @@ async def handle_live_bets_media_upload(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     media_file_id: str | None = None
@@ -3855,9 +3607,6 @@ async def handle_pre_match_bets_media_change(
     callback: CallbackQuery,
     state: FSMContext,
 ) -> None:
-    if not _is_super_admin(callback.from_user.id):
-        await callback.answer("⛔ Unauthorized", show_alert=True)
-        return
 
     await state.set_state(
         VipSettingsStates.waiting_for_pre_match_bets_media
@@ -3880,11 +3629,6 @@ async def handle_pre_match_bets_media_upload(
     vip_menu_settings_service: VipMenuSettingsService,
 ) -> None:
     if message.from_user is None:
-        return
-
-    if not _is_super_admin(message.from_user.id):
-        await state.clear()
-        await message.answer("⛔ You are not authorized.")
         return
 
     media_file_id: str | None = None
@@ -3921,3 +3665,4034 @@ async def handle_pre_match_bets_media_upload(
         f"✅ <b>PRE-MATCH BETS {media_type.upper()} UPDATED</b>\n\n"
         "Users opening Pre-Match Bets will now see the new media."
     )
+
+
+def _owner_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🛡 MANAGE ADMINS",
+                    callback_data="owner:manage_admins",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="➕ ADD ADMIN",
+                    callback_data="owner:add_admin",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👑 TRANSFER OWNERSHIP",
+                    callback_data="owner:transfer_ownership",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👥 MANAGE USERS",
+                    callback_data="owner:manage_users",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔄 RESET ALL VERIFICATIONS",
+                    callback_data="owner:reset_all_confirm",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📋 AUDIT LOG",
+                    callback_data="owner:audit_log",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌍 TIMEZONE",
+                    callback_data="owner:timezone",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚙️ ADMIN PANEL",
+                    callback_data="owner:admin_panel",
+                )
+            ],
+        ]
+    )
+
+
+@router.message(Command("owner"))
+async def handle_owner(
+    message: Message,
+    admin_service: AdminService,
+) -> None:
+    if message.from_user is None:
+        return
+
+    if not await admin_service.is_owner(
+        message.from_user.id
+    ):
+        return
+
+    admins = await admin_service.list_admins()
+
+    active_admins = [
+        admin
+        for admin in admins
+        if admin.is_active and admin.role == "admin"
+    ]
+
+    await message.answer(
+        "👑 <b>OWNER CONTROL PANEL</b>\n\n"
+        f"🛡 Admins: {len(active_admins)}",
+        reply_markup=_owner_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "owner:manage_admins")
+async def handle_owner_manage_admins(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    admins = await admin_service.list_admins()
+
+    lines = [
+        "🛡 <b>ADMIN TEAM</b>",
+        "",
+    ]
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+
+    for admin in admins:
+        user = await user_service.get_by_telegram_id(
+            admin.telegram_user_id
+        )
+
+        username = (
+            f"@{user.username}"
+            if user is not None and user.username
+            else "No username"
+        )
+
+        if admin.role == "owner":
+            icon = "👑"
+            role_label = "OWNER"
+        else:
+            icon = "🛡"
+            role_label = "ADMIN"
+
+        status = (
+            "ACTIVE"
+            if admin.is_active
+            else "DISABLED"
+        )
+
+        lines.append(
+            f"{icon} {escape(username)} "
+            f"• <code>{admin.telegram_user_id}</code> "
+            f"• {role_label} • {status}"
+        )
+
+        if admin.role != "owner":
+            keyboard_rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=(
+                            f"{'🟢' if admin.is_active else '🔴'} "
+                            f"{username}"
+                        ),
+                        callback_data=(
+                            f"owner:admin:{admin.telegram_user_id}"
+                        ),
+                    )
+                ]
+            )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="➕ ADD ADMIN",
+                callback_data="owner:add_admin",
+            )
+        ]
+    )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="owner:back",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=keyboard_rows
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:back")
+async def handle_owner_back(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    admins = await admin_service.list_admins()
+
+    active_admins = [
+        admin
+        for admin in admins
+        if admin.is_active and admin.role == "admin"
+    ]
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "👑 <b>OWNER CONTROL PANEL</b>\n\n"
+            f"🛡 Admins: {len(active_admins)}",
+            reply_markup=_owner_keyboard(),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("owner:admin:"))
+async def handle_owner_admin_details(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix("owner:admin:")
+
+    try:
+        telegram_user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid admin ID",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        telegram_user_id
+    )
+
+    if admin is None or admin.role == "owner":
+        await callback.answer(
+            "Admin not found",
+            show_alert=True,
+        )
+        return
+
+    user = await user_service.get_by_telegram_id(
+        admin.telegram_user_id
+    )
+
+    username = (
+        f"@{user.username}"
+        if user is not None and user.username
+        else "No username"
+    )
+
+    status = (
+        "ACTIVE"
+        if admin.is_active
+        else "DISABLED"
+    )
+
+    action_text = (
+        "🚫 DISABLE ADMIN"
+        if admin.is_active
+        else "✅ ENABLE ADMIN"
+    )
+
+    action_callback = (
+        f"owner:disable_admin:{telegram_user_id}"
+        if admin.is_active
+        else f"owner:enable_admin:{telegram_user_id}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=action_text,
+                    callback_data=action_callback,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 DELETE ADMIN",
+                    callback_data=f"owner:delete_admin_confirm:{telegram_user_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="owner:manage_admins",
+                )
+            ],
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🛡 <b>ADMIN DETAILS</b>\n\n"
+            f"Username: {escape(username)}\n"
+            f"Telegram ID: <code>{admin.telegram_user_id}</code>\n"
+            f"Role: {admin.role.upper()}\n"
+            f"Status: {status}",
+            reply_markup=keyboard,
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("owner:disable_admin:"))
+async def handle_owner_disable_admin(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:disable_admin:"
+    )
+
+    try:
+        telegram_user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid admin ID",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        telegram_user_id
+    )
+
+    if admin is None or admin.role == "owner":
+        await callback.answer(
+            "Admin not found",
+            show_alert=True,
+        )
+        return
+
+    await admin_service.set_admin_active(
+        telegram_user_id,
+        False,
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="admin_disabled",
+        target_type="admin",
+        target_id=str(telegram_user_id),
+        details=f"role={admin.role}",
+    )
+
+    user = await user_service.get_by_telegram_id(
+        telegram_user_id
+    )
+    username = (
+        f"@{user.username}"
+        if user is not None and user.username
+        else "No username"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🛡 <b>ADMIN DETAILS</b>\n\n"
+            f"Username: {escape(username)}\n"
+            f"Telegram ID: <code>{telegram_user_id}</code>\n"
+            "Role: ADMIN\n"
+            "Status: DISABLED",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✅ ENABLE ADMIN",
+                            callback_data=f"owner:enable_admin:{telegram_user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🗑 DELETE ADMIN",
+                            callback_data=f"owner:delete_admin_confirm:{telegram_user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ BACK",
+                            callback_data="owner:manage_admins",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer("Admin disabled ✅")
+
+
+@router.callback_query(F.data.startswith("owner:enable_admin:"))
+async def handle_owner_enable_admin(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:enable_admin:"
+    )
+
+    try:
+        telegram_user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid admin ID",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        telegram_user_id
+    )
+
+    if admin is None or admin.role == "owner":
+        await callback.answer(
+            "Admin not found",
+            show_alert=True,
+        )
+        return
+
+    await admin_service.set_admin_active(
+        telegram_user_id,
+        True,
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="admin_enabled",
+        target_type="admin",
+        target_id=str(telegram_user_id),
+        details=f"role={admin.role}",
+    )
+
+    user = await user_service.get_by_telegram_id(
+        telegram_user_id
+    )
+    username = (
+        f"@{user.username}"
+        if user is not None and user.username
+        else "No username"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🛡 <b>ADMIN DETAILS</b>\n\n"
+            f"Username: {escape(username)}\n"
+            f"Telegram ID: <code>{telegram_user_id}</code>\n"
+            "Role: ADMIN\n"
+            "Status: ACTIVE",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🚫 DISABLE ADMIN",
+                            callback_data=f"owner:disable_admin:{telegram_user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🗑 DELETE ADMIN",
+                            callback_data=f"owner:delete_admin_confirm:{telegram_user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ BACK",
+                            callback_data="owner:manage_admins",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer("Admin enabled ✅")
+
+
+@router.callback_query(F.data == "owner:add_admin")
+async def handle_owner_add_admin(
+    callback: CallbackQuery,
+    state: FSMContext,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    await state.set_state(
+        AdminManagementStates.waiting_for_admin_telegram_id
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "➕ <b>ADD ADMIN</b>\n\n"
+            "Send the Telegram ID or @username of the new admin.\n\n"
+            "Examples:\n"
+            "<code>123456789</code>\n"
+            "<code>@username</code>"
+        )
+
+    await callback.answer()
+
+
+@router.message(
+    AdminManagementStates.waiting_for_admin_telegram_id
+)
+async def handle_owner_add_admin_id(
+    message: Message,
+    state: FSMContext,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+    user_service: UserService,
+) -> None:
+    if message.from_user is None:
+        return
+
+    if not await admin_service.is_owner(
+        message.from_user.id
+    ):
+        await state.clear()
+        return
+
+    if message.text is None:
+        await message.answer(
+            "❌ Send the Telegram ID as text."
+        )
+        return
+
+    raw_input = message.text.strip()
+
+    resolved_user = None
+
+    if raw_input.startswith("@"):
+        username = raw_input.lstrip("@").strip()
+
+        if not username:
+            await message.answer(
+                "❌ Invalid username.\n"
+                "Example: <code>@username</code>"
+            )
+            return
+
+        resolved_user = await user_service.get_by_username(
+            username
+        )
+
+        if resolved_user is None:
+            await message.answer(
+                "❌ Username not found in bot users.\n\n"
+                "Ask that user to start the bot first, then try again."
+            )
+            return
+
+        telegram_user_id = resolved_user.telegram_user_id
+
+    else:
+        try:
+            telegram_user_id = int(raw_input)
+        except ValueError:
+            await message.answer(
+                "❌ Send a Telegram ID or @username.\n\n"
+                "Examples:\n"
+                "<code>123456789</code>\n"
+                "<code>@username</code>"
+            )
+            return
+
+        if telegram_user_id <= 0:
+            await message.answer(
+                "❌ Invalid Telegram ID."
+            )
+            return
+
+        resolved_user = await user_service.get_by_telegram_id(
+            telegram_user_id
+        )
+
+    existing = await admin_service.get_admin(
+        telegram_user_id
+    )
+
+    if (
+        existing is not None
+        and existing.role == "owner"
+    ):
+        await state.clear()
+        await message.answer(
+            "👑 This user is already the owner.",
+            reply_markup=_owner_keyboard(),
+        )
+        return
+
+    admin = await admin_service.add_admin(
+        telegram_user_id
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=message.from_user.id,
+        action="admin_added",
+        target_type="admin",
+        target_id=str(telegram_user_id),
+        details="Admin added or re-enabled by owner.",
+    )
+
+    await state.clear()
+
+    username = (
+        f"@{resolved_user.username}"
+        if resolved_user is not None and resolved_user.username
+        else "No username"
+    )
+
+    await message.answer(
+        "✅ <b>ADMIN ADDED</b>\n\n"
+        f"Username: {escape(username)}\n"
+        f"Telegram ID: <code>{admin.telegram_user_id}</code>\n"
+        "Role: ADMIN\n"
+        "Status: ACTIVE",
+        reply_markup=_owner_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "owner:admin_panel")
+async def handle_owner_admin_panel(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🛡 <b>ADMIN PANEL</b>\n\n"
+            "✅ Admin access verified.",
+            reply_markup=_admin_keyboard(),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:reset_all_confirm")
+async def handle_owner_reset_all_confirm(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚠️ YES, RESET ALL",
+                    callback_data="owner:reset_all_execute",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ CANCEL",
+                    callback_data="owner:back",
+                )
+            ],
+        ]
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "⚠️ <b>RESET ALL VERIFICATIONS?</b>\n\n"
+            "This will reset verification status for "
+            "<b>all users</b>.\n\n"
+            "The following will be cleared:\n"
+            "• Registration completion\n"
+            "• Contact verification\n"
+            "• VIP access\n\n"
+            "Language and VIP category selection will remain unchanged.\n\n"
+            "<b>This action cannot be undone.</b>",
+            reply_markup=keyboard,
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:reset_all_execute")
+async def handle_owner_reset_all_execute(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    count = await onboarding_service.reset_all_verifications()
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="all_user_verifications_reset",
+        target_type="system",
+        target_id="all_users",
+        details=f"Reset {count} onboarding records.",
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "✅ <b>ALL VERIFICATIONS RESET</b>\n\n"
+            f"Reset records: <b>{count}</b>\n\n"
+            "All affected users must complete verification again.\n"
+            "Language and VIP category selections were preserved.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👥 MANAGE USERS",
+                            callback_data="owner:manage_users",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ OWNER PANEL",
+                            callback_data="owner:back",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer(
+        "All verifications reset ✅",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data == "owner:manage_users")
+async def handle_owner_manage_users(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.list_all(
+        limit=50,
+        offset=0,
+    )
+
+    lines = [
+        "👥 <b>USERS</b>",
+        "",
+        f"Total shown: {len(users)}",
+        "",
+    ]
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+
+    for user in users:
+        name = (
+            user.first_name
+            or user.username
+            or str(user.telegram_user_id)
+        )
+
+        lines.append(
+            f"• {escape(name)} "
+            f"(<code>{user.telegram_user_id}</code>)"
+        )
+
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👤 {name[:28]}",
+                    callback_data=(
+                        f"owner:user:{user.id}"
+                    ),
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="owner:back",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=keyboard_rows
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("owner:user:"))
+async def handle_owner_user_details(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix("owner:user:")
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    state = await onboarding_service.get_state(
+        user_id=user.id
+    )
+
+    if state is None:
+        verification_status = "⚪ NOT STARTED"
+        vip_status = "❌ NO ACCESS"
+        selected_vip = "None"
+    else:
+        if state.vip_access_granted_at is not None:
+            verification_status = "🟢 APPROVED"
+            vip_status = "✅ ACTIVE"
+        elif state.contact_verified_at is not None:
+            verification_status = "🟡 PENDING APPROVAL"
+            vip_status = "⏳ WAITING"
+        else:
+            verification_status = "⚪ INCOMPLETE"
+            vip_status = "❌ NO ACCESS"
+
+        selected_vip = (
+            str(state.vip_category_id)
+            if state.vip_category_id is not None
+            else "None"
+        )
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "None"
+    )
+
+    name = " ".join(
+        part
+        for part in [
+            user.first_name,
+            user.last_name,
+        ]
+        if part
+    ) or "Unknown"
+
+    keyboard_rows = []
+
+    if (
+        state is not None
+        and state.contact_verified_at is not None
+        and state.vip_access_granted_at is None
+    ):
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ APPROVE",
+                    callback_data=f"owner:user_approve:{user.id}",
+                )
+            ]
+        )
+
+    if (
+        state is not None
+        and state.vip_access_granted_at is not None
+    ):
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🚫 REMOVE ACCESS",
+                    callback_data=f"owner:user_revoke:{user.id}",
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔄 RESET VERIFICATION",
+                callback_data=f"owner:user_reset:{user.id}",
+            )
+        ]
+    )
+
+    if not await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🗑 DELETE USER",
+                    callback_data=f"owner:user_delete_confirm:{user.id}",
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="owner:manage_users",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "👤 <b>USER DETAILS</b>\n\n"
+            f"Name: {escape(name)}\n"
+            f"Telegram ID: <code>{user.telegram_user_id}</code>\n"
+            f"Username: {escape(username)}\n"
+            f"Joined: {user.created_at:%Y-%m-%d %H:%M}\n"
+            f"Verification: {verification_status}\n"
+            f"VIP Status: {vip_status}\n"
+            f"Selected VIP ID: {selected_vip}",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=keyboard_rows
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("owner:user_approve:"))
+async def handle_owner_user_approve(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:user_approve:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    result = await onboarding_service.grant_vip_access(
+        user_id=user_id
+    )
+
+    if not result.granted:
+        await callback.answer(
+            f"Could not approve: {result.reason}",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_approved",
+        target_type="user",
+        target_id=str(user_id),
+        details="VIP access granted.",
+    )
+
+    await callback.answer(
+        "User approved ✅"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "✅ <b>USER APPROVED</b>\n\n"
+            "VIP access has been granted.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"owner:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="owner:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data.startswith("owner:user_revoke:"))
+async def handle_owner_user_revoke(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:user_revoke:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    await onboarding_service.revoke_vip_access(
+        user_id=user_id
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_access_revoked",
+        target_type="user",
+        target_id=str(user_id),
+        details="VIP access revoked.",
+    )
+
+    await callback.answer(
+        "Access removed ✅"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🚫 <b>ACCESS REMOVED</b>\n\n"
+            "The user's VIP access has been revoked.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"owner:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="owner:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data.startswith("owner:user_reset:"))
+async def handle_owner_user_reset(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:user_reset:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    await onboarding_service.reset_verification(
+        user_id=user_id
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_verification_reset",
+        target_type="user",
+        target_id=str(user_id),
+        details="User verification reset.",
+    )
+
+    await callback.answer(
+        "Verification reset ✅"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🔄 <b>VERIFICATION RESET</b>\n\n"
+            "The user must complete verification again.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"owner:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="owner:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data == "admin:manage_users")
+async def handle_admin_manage_users(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    users = await user_service.list_all(
+        limit=50,
+        offset=0,
+    )
+
+    visible_users = []
+
+    for user in users:
+        if await admin_service.is_owner(
+            user.telegram_user_id
+        ):
+            continue
+
+        visible_users.append(user)
+
+    lines = [
+        "👥 <b>MANAGE USERS</b>",
+        "",
+        f"Total shown: {len(visible_users)}",
+        "",
+    ]
+
+    keyboard_rows: list[list[InlineKeyboardButton]] = []
+
+    for user in visible_users:
+        name = (
+            user.first_name
+            or user.username
+            or str(user.telegram_user_id)
+        )
+
+        lines.append(
+            f"• {escape(name)} "
+            f"(<code>{user.telegram_user_id}</code>)"
+        )
+
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👤 {name[:28]}",
+                    callback_data=f"admin:user:{user.id}",
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="admin:back",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=keyboard_rows
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:user:"))
+async def handle_admin_user_details(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix("admin:user:")
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be managed here.",
+            show_alert=True,
+        )
+        return
+
+    state = await onboarding_service.get_state(
+        user_id=user.id
+    )
+
+    if state is None:
+        verification_status = "⚪ NOT STARTED"
+        vip_status = "❌ NO ACCESS"
+        selected_vip = "None"
+    else:
+        if state.vip_access_granted_at is not None:
+            verification_status = "🟢 APPROVED"
+            vip_status = "✅ ACTIVE"
+        elif state.contact_verified_at is not None:
+            verification_status = "🟡 PENDING APPROVAL"
+            vip_status = "⏳ WAITING"
+        else:
+            verification_status = "⚪ INCOMPLETE"
+            vip_status = "❌ NO ACCESS"
+
+        selected_vip = (
+            str(state.vip_category_id)
+            if state.vip_category_id is not None
+            else "None"
+        )
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "None"
+    )
+
+    name = " ".join(
+        part
+        for part in [
+            user.first_name,
+            user.last_name,
+        ]
+        if part
+    ) or "Unknown"
+
+    keyboard_rows = []
+
+    if (
+        state is not None
+        and state.contact_verified_at is not None
+        and state.vip_access_granted_at is None
+    ):
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="✅ APPROVE",
+                    callback_data=f"admin:user_approve:{user.id}",
+                )
+            ]
+        )
+
+    if (
+        state is not None
+        and state.vip_access_granted_at is not None
+    ):
+        keyboard_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🚫 REMOVE ACCESS",
+                    callback_data=f"admin:user_revoke:{user.id}",
+                )
+            ]
+        )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔄 RESET VERIFICATION",
+                callback_data=f"admin:user_reset:{user.id}",
+            )
+        ]
+    )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="🗑 DELETE USER",
+                callback_data=f"admin:user_delete_confirm:{user.id}",
+            )
+        ]
+    )
+
+    keyboard_rows.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="admin:manage_users",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "👤 <b>USER DETAILS</b>\n\n"
+            f"Name: {escape(name)}\n"
+            f"Telegram ID: <code>{user.telegram_user_id}</code>\n"
+            f"Username: {escape(username)}\n"
+            f"Joined: {user.created_at:%Y-%m-%d %H:%M}\n"
+            f"Verification: {verification_status}\n"
+            f"VIP Status: {vip_status}\n"
+            f"Selected VIP ID: {selected_vip}",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=keyboard_rows
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:user_approve:"))
+async def handle_admin_user_approve(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "admin:user_approve:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be managed.",
+            show_alert=True,
+        )
+        return
+
+    result = await onboarding_service.grant_vip_access(
+        user_id=user_id
+    )
+
+    if not result.granted:
+        await callback.answer(
+            f"Could not approve: {result.reason}",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_approved",
+        target_type="user",
+        target_id=str(user_id),
+        details="VIP access granted by admin.",
+    )
+
+    await callback.answer("User approved ✅")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "✅ <b>USER APPROVED</b>\n\n"
+            "VIP access has been granted.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"admin:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="admin:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data.startswith("admin:user_revoke:"))
+async def handle_admin_user_revoke(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "admin:user_revoke:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be managed.",
+            show_alert=True,
+        )
+        return
+
+    await onboarding_service.revoke_vip_access(
+        user_id=user_id
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_access_revoked",
+        target_type="user",
+        target_id=str(user_id),
+        details="VIP access revoked by admin.",
+    )
+
+    await callback.answer("Access removed ✅")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🚫 <b>ACCESS REMOVED</b>\n\n"
+            "The user's VIP access has been revoked.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"admin:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="admin:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data.startswith("admin:user_reset:"))
+async def handle_admin_user_reset(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    onboarding_service: OnboardingService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "admin:user_reset:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be managed.",
+            show_alert=True,
+        )
+        return
+
+    await onboarding_service.reset_verification(
+        user_id=user_id
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_verification_reset",
+        target_type="user",
+        target_id=str(user_id),
+        details="User verification reset by admin.",
+    )
+
+    await callback.answer("Verification reset ✅")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🔄 <b>VERIFICATION RESET</b>\n\n"
+            "The user must complete verification again.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="👤 VIEW USER",
+                            callback_data=f"admin:user:{user_id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ USERS",
+                            callback_data="admin:manage_users",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+
+@router.callback_query(F.data == "admin:back")
+async def handle_admin_back(
+    callback: CallbackQuery,
+) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🛡 <b>ADMIN PANEL</b>\n\n"
+            "✅ Admin access verified.",
+            reply_markup=_admin_keyboard(),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:audit_log")
+async def handle_owner_audit_log(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    owner_admin = await admin_service.get_admin(
+        callback.from_user.id
+    )
+
+    timezone_name = (
+        owner_admin.timezone
+        if owner_admin is not None and owner_admin.timezone
+        else "UTC"
+    )
+
+    try:
+        owner_timezone = ZoneInfo(timezone_name)
+    except Exception:
+        timezone_name = "UTC"
+        owner_timezone = ZoneInfo("UTC")
+
+    logs = await audit_log_service.list_recent(
+        limit=20
+    )
+
+    lines = [
+        "📋 <b>AUDIT LOG</b>",
+        f"🌍 Timezone: <code>{escape(timezone_name)}</code>",
+        "",
+    ]
+
+    if not logs:
+        lines.append("No audit activity recorded yet.")
+    else:
+        for log in logs:
+            created_at = log.created_at
+
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(
+                    tzinfo=ZoneInfo("UTC")
+                )
+
+            local_created_at = created_at.astimezone(
+                owner_timezone
+            )
+
+            created = local_created_at.strftime(
+                "%d %b %Y • %I:%M %p %Z"
+            )
+
+            actor_user = await user_service.get_by_telegram_id(
+                log.actor_telegram_user_id
+            )
+
+            if actor_user and actor_user.username:
+                actor_label = (
+                    f"@{escape(actor_user.username)} "
+                    f"(<code>{log.actor_telegram_user_id}</code>)"
+                )
+            else:
+                actor_label = (
+                    f"<code>{log.actor_telegram_user_id}</code>"
+                )
+
+            target_label = (
+                f"{escape(log.target_type)} "
+                f"<code>{escape(log.target_id)}</code>"
+            )
+
+            if log.target_type == "user":
+                try:
+                    target_user_id = int(log.target_id)
+                except (TypeError, ValueError):
+                    target_user_id = None
+
+                if target_user_id is not None:
+                    users = await user_service.get_by_ids(
+                        [target_user_id]
+                    )
+
+                    if users:
+                        target_user = users[0]
+
+                        if target_user.username:
+                            target_label = (
+                                f"@{escape(target_user.username)} "
+                                f"(<code>{target_user.telegram_user_id}</code>)"
+                            )
+                        else:
+                            target_label = (
+                                f"<code>{target_user.telegram_user_id}</code>"
+                            )
+
+            elif log.target_type == "admin":
+                try:
+                    target_telegram_id = int(log.target_id)
+                except (TypeError, ValueError):
+                    target_telegram_id = None
+
+                if target_telegram_id is not None:
+                    target_user = await user_service.get_by_telegram_id(
+                        target_telegram_id
+                    )
+
+                    if target_user and target_user.username:
+                        target_label = (
+                            f"@{escape(target_user.username)} "
+                            f"(<code>{target_telegram_id}</code>)"
+                        )
+                    else:
+                        target_label = (
+                            f"<code>{target_telegram_id}</code>"
+                        )
+
+            lines.extend(
+                [
+                    f"🕒 {created}",
+                    f"👤 Actor: {actor_label}",
+                    f"⚡ Action: {escape(log.action)}",
+                    f"🎯 Target: {target_label}",
+                ]
+            )
+
+            if log.details:
+                lines.append(
+                    f"📝 {escape(log.details)}"
+                )
+
+            lines.append("")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🔄 REFRESH",
+                            callback_data="owner:audit_log",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ BACK",
+                            callback_data="owner:back",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("owner:delete_admin_confirm:")
+)
+async def handle_owner_delete_admin_confirm(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:delete_admin_confirm:"
+    )
+
+    try:
+        telegram_user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid admin ID",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        telegram_user_id
+    )
+
+    if admin is None or admin.role == "owner":
+        await callback.answer(
+            "Admin not found",
+            show_alert=True,
+        )
+        return
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "⚠️ <b>DELETE ADMIN?</b>\n\n"
+            f"Telegram ID: <code>{telegram_user_id}</code>\n\n"
+            "This will permanently remove this admin role.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🗑 YES, DELETE",
+                            callback_data=(
+                                f"owner:delete_admin:{telegram_user_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ CANCEL",
+                            callback_data=(
+                                f"owner:admin:{telegram_user_id}"
+                            ),
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("owner:delete_admin:")
+)
+async def handle_owner_delete_admin(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:delete_admin:"
+    )
+
+    try:
+        telegram_user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid admin ID",
+            show_alert=True,
+        )
+        return
+
+    deleted = await admin_service.delete_admin(
+        telegram_user_id
+    )
+
+    if not deleted:
+        await callback.answer(
+            "Could not delete admin.",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="admin_deleted",
+        target_type="admin",
+        target_id=str(telegram_user_id),
+        details="Admin permanently removed by owner.",
+    )
+
+    await callback.answer(
+        "Admin deleted ✅"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🗑 <b>ADMIN DELETED</b>\n\n"
+            f"<code>{telegram_user_id}</code> "
+            "is no longer an admin.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ MANAGE ADMINS",
+                            callback_data="owner:manage_admins",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+
+@router.callback_query(
+    F.data.startswith("owner:user_delete_confirm:")
+)
+async def handle_owner_user_delete_confirm(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:user_delete_confirm:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be deleted.",
+            show_alert=True,
+        )
+        return
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "No username"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "⚠️ <b>DELETE USER?</b>\n\n"
+            f"User: {escape(username)}\n"
+            f"Telegram ID: <code>{user.telegram_user_id}</code>\n\n"
+            "This will permanently delete the user and related onboarding/membership data.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🗑 YES, DELETE",
+                            callback_data=f"owner:user_delete:{user.id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ CANCEL",
+                            callback_data=f"owner:user:{user.id}",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("owner:user_delete:")
+)
+async def handle_owner_user_delete(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if not await admin_service.is_owner(
+        callback.from_user.id
+    ):
+        await callback.answer(
+            "⛔ Owner only",
+            show_alert=True,
+        )
+        return
+
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "owner:user_delete:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be deleted.",
+            show_alert=True,
+        )
+        return
+
+    target_telegram_id = user.telegram_user_id
+    target_username = user.username
+
+    deleted = await user_service.delete_user(
+        user_id=user_id,
+        owner_telegram_user_id=callback.from_user.id,
+    )
+
+    if not deleted:
+        await callback.answer(
+            "Could not delete user.",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_deleted",
+        target_type="user",
+        target_id=str(target_telegram_id),
+        details=(
+            f"Deleted user @{target_username}."
+            if target_username
+            else "User permanently deleted."
+        ),
+    )
+
+    await callback.answer("User deleted ✅")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🗑 <b>USER DELETED</b>\n\n"
+            f"Telegram ID: <code>{target_telegram_id}</code>",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ MANAGE USERS",
+                            callback_data="owner:manage_users",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+
+@router.callback_query(
+    F.data.startswith("admin:user_delete_confirm:")
+)
+async def handle_admin_user_delete_confirm(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "admin:user_delete_confirm:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be deleted.",
+            show_alert=True,
+        )
+        return
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "No username"
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "⚠️ <b>DELETE USER?</b>\n\n"
+            f"User: {escape(username)}\n"
+            f"Telegram ID: <code>{user.telegram_user_id}</code>\n\n"
+            "This will permanently delete this user.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🗑 YES, DELETE",
+                            callback_data=f"admin:user_delete:{user.id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="❌ CANCEL",
+                            callback_data=f"admin:user:{user.id}",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(
+    F.data.startswith("admin:user_delete:")
+)
+async def handle_admin_user_delete(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.data is None:
+        return
+
+    raw_id = callback.data.removeprefix(
+        "admin:user_delete:"
+    )
+
+    try:
+        user_id = int(raw_id)
+    except ValueError:
+        await callback.answer(
+            "Invalid user ID",
+            show_alert=True,
+        )
+        return
+
+    users = await user_service.get_by_ids([user_id])
+
+    if not users:
+        await callback.answer(
+            "User not found",
+            show_alert=True,
+        )
+        return
+
+    user = users[0]
+
+    if await admin_service.is_owner(
+        user.telegram_user_id
+    ):
+        await callback.answer(
+            "⛔ Owner account cannot be deleted.",
+            show_alert=True,
+        )
+        return
+
+    target_telegram_id = user.telegram_user_id
+    target_username = user.username
+
+    deleted = await user_service.delete_user(
+        user_id=user_id,
+        owner_telegram_user_id=callback.from_user.id,
+    )
+
+    if not deleted:
+        await callback.answer(
+            "Could not delete user.",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="user_deleted",
+        target_type="user",
+        target_id=str(target_telegram_id),
+        details=(
+            f"Deleted user @{target_username} by admin."
+            if target_username
+            else "User permanently deleted by admin."
+        ),
+    )
+
+    await callback.answer("User deleted ✅")
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "🗑 <b>USER DELETED</b>\n\n"
+            f"Telegram ID: <code>{target_telegram_id}</code>",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ MANAGE USERS",
+                            callback_data="admin:manage_users",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+@router.callback_query(F.data == "owner:transfer_ownership")
+async def handle_owner_transfer_ownership(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    admins = await admin_service.list_admins()
+
+    eligible_admins = [
+        admin
+        for admin in admins
+        if (
+            admin.role == "admin"
+            and admin.is_active
+            and admin.telegram_user_id != callback.from_user.id
+        )
+    ]
+
+    if not eligible_admins:
+        await callback.answer(
+            "No active admin available for ownership transfer.",
+            show_alert=True,
+        )
+        return
+
+    lines = [
+        "👑 <b>TRANSFER OWNERSHIP</b>",
+        "",
+        "Select the admin who should become the new owner:",
+        "",
+    ]
+
+    buttons = []
+
+    for admin in eligible_admins:
+        user = await user_service.get_by_telegram_id(
+            admin.telegram_user_id
+        )
+
+        username = (
+            f"@{user.username}"
+            if user is not None and user.username
+            else "No username"
+        )
+
+        lines.append(
+            f"🛡 {escape(username)} "
+            f"• <code>{admin.telegram_user_id}</code>"
+        )
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"👑 {username}",
+                    callback_data=(
+                        "owner:transfer_select:"
+                        f"{admin.telegram_user_id}"
+                    ),
+                )
+            ]
+        )
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK",
+                callback_data="owner:back",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=buttons
+            ),
+        )
+
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("owner:transfer_select:"))
+async def handle_owner_transfer_select(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    user_service: UserService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    try:
+        new_owner_telegram_id = int(
+            callback.data.rsplit(":", 1)[1]
+        )
+    except (ValueError, AttributeError):
+        await callback.answer(
+            "Invalid admin",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        new_owner_telegram_id
+    )
+
+    if (
+        admin is None
+        or admin.role != "admin"
+        or not admin.is_active
+    ):
+        await callback.answer(
+            "This admin is not eligible for ownership transfer.",
+            show_alert=True,
+        )
+        return
+
+    user = await user_service.get_by_telegram_id(
+        new_owner_telegram_id
+    )
+
+    username = (
+        f"@{user.username}"
+        if user is not None and user.username
+        else "No username"
+    )
+
+    text = (
+        "⚠️ <b>CONFIRM OWNERSHIP TRANSFER</b>\n\n"
+        f"New Owner: {escape(username)}\n"
+        f"Telegram ID: <code>{new_owner_telegram_id}</code>\n\n"
+        "After confirmation:\n"
+        "• This admin becomes OWNER\n"
+        "• You become a normal ADMIN\n"
+        "• New owner gets full /owner access\n\n"
+        "This is a sensitive action."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ CONFIRM TRANSFER",
+                    callback_data=(
+                        "owner:transfer_confirm:"
+                        f"{new_owner_telegram_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ CANCEL",
+                    callback_data="owner:transfer_ownership",
+                )
+            ],
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+        )
+
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("owner:transfer_confirm:"))
+async def handle_owner_transfer_confirm(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+    user_service: UserService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    current_owner_id = callback.from_user.id
+
+    if not await admin_service.is_owner(current_owner_id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    try:
+        new_owner_telegram_id = int(
+            callback.data.rsplit(":", 1)[1]
+        )
+    except (ValueError, AttributeError):
+        await callback.answer(
+            "Invalid admin",
+            show_alert=True,
+        )
+        return
+
+    new_owner_admin = await admin_service.get_admin(
+        new_owner_telegram_id
+    )
+
+    if (
+        new_owner_admin is None
+        or new_owner_admin.role != "admin"
+        or not new_owner_admin.is_active
+    ):
+        await callback.answer(
+            "This admin is no longer eligible.",
+            show_alert=True,
+        )
+        return
+
+    transferred = await admin_service.transfer_ownership(
+        current_owner_telegram_user_id=current_owner_id,
+        new_owner_telegram_user_id=new_owner_telegram_id,
+    )
+
+    if not transferred:
+        await callback.answer(
+            "Ownership transfer failed.",
+            show_alert=True,
+        )
+        return
+
+    new_owner_user = await user_service.get_by_telegram_id(
+        new_owner_telegram_id
+    )
+
+    username = (
+        f"@{new_owner_user.username}"
+        if new_owner_user is not None
+        and new_owner_user.username
+        else "No username"
+    )
+
+    await audit_log_service.record(
+        actor_telegram_user_id=current_owner_id,
+        action="ownership_transferred",
+        target_type="admin",
+        target_id=str(new_owner_telegram_id),
+        details=(
+            f"previous_owner_telegram_id={current_owner_id}; "
+            f"new_owner_telegram_id={new_owner_telegram_id}; "
+            f"new_owner_username="
+            f"{new_owner_user.username if new_owner_user is not None else 'None'}"
+        ),
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "✅ <b>OWNERSHIP TRANSFERRED</b>\n\n"
+            f"New Owner: {escape(username)}\n"
+            f"Telegram ID: <code>{new_owner_telegram_id}</code>\n\n"
+            "You are now a normal admin.\n"
+            "The new owner can now use /owner.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⚙️ OPEN ADMIN PANEL",
+                            callback_data="owner:admin_panel",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    await callback.answer(
+        "Ownership transferred successfully ✅"
+    )
+
+@router.callback_query(F.data == "owner:timezone")
+async def handle_owner_timezone(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.get_admin(
+        callback.from_user.id
+    )
+
+    current_timezone = (
+        admin.timezone
+        if admin is not None and admin.timezone
+        else "Not set"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🌏 ASIA",
+                    callback_data="owner:timezone_region:Asia",
+                ),
+                InlineKeyboardButton(
+                    text="🌍 EUROPE",
+                    callback_data="owner:timezone_region:Europe",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌎 AMERICA",
+                    callback_data="owner:timezone_region:America",
+                ),
+                InlineKeyboardButton(
+                    text="🌍 AFRICA",
+                    callback_data="owner:timezone_region:Africa",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🇦🇺 AUSTRALIA",
+                    callback_data="owner:timezone_region:Australia",
+                ),
+                InlineKeyboardButton(
+                    text="🌊 PACIFIC",
+                    callback_data="owner:timezone_region:Pacific",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="owner:back",
+                )
+            ],
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        try:
+            await callback.message.edit_text(
+                "🌍 <b>OWNER TIMEZONE</b>\n\n"
+                f"Current: <code>{escape(current_timezone)}</code>\n\n"
+                "Select your region:",
+                reply_markup=keyboard,
+            )
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc):
+                raise
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("owner:set_timezone:"))
+async def handle_owner_set_timezone(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    audit_log_service: AuditLogService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    timezone_name = callback.data.split(
+        "owner:set_timezone:",
+        1,
+    )[1]
+
+    from zoneinfo import available_timezones
+
+    if timezone_name not in available_timezones():
+        await callback.answer(
+            "Invalid timezone",
+            show_alert=True,
+        )
+        return
+
+    admin = await admin_service.set_timezone(
+        telegram_user_id=callback.from_user.id,
+        timezone=timezone_name,
+    )
+
+    if admin is None:
+        await callback.answer(
+            "Failed to save timezone",
+            show_alert=True,
+        )
+        return
+
+    await audit_log_service.record(
+        actor_telegram_user_id=callback.from_user.id,
+        action="owner_timezone_updated",
+        target_type="admin",
+        target_id=str(callback.from_user.id),
+        details=f"timezone={timezone_name}",
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "✅ <b>TIMEZONE UPDATED</b>\n\n"
+            f"Selected: <code>{escape(timezone_name)}</code>\n\n"
+            "Audit Log will now use this timezone.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📋 OPEN AUDIT LOG",
+                            callback_data="owner:audit_log",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🌍 CHANGE TIMEZONE",
+                            callback_data="owner:timezone",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ OWNER PANEL",
+                            callback_data="owner:back",
+                        )
+                    ],
+                ]
+            ),
+        )
+
+    await callback.answer(
+        "Timezone updated ✅",
+        show_alert=True,
+    )
+
+@router.callback_query(F.data.startswith("owner:timezone_region:"))
+async def handle_owner_timezone_region(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+) -> None:
+    if callback.from_user is None:
+        return
+
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer(
+            "Owner access required",
+            show_alert=True,
+        )
+        return
+
+    payload = callback.data.split(
+        "owner:timezone_region:",
+        1,
+    )[1]
+
+    parts = payload.rsplit(":", 1)
+
+    if len(parts) == 2 and parts[1].isdigit():
+        region = parts[0]
+        page = int(parts[1])
+    else:
+        region = payload
+        page = 0
+
+    allowed_regions = {
+        "Asia",
+        "Europe",
+        "America",
+        "Africa",
+        "Australia",
+        "Pacific",
+    }
+
+    if region not in allowed_regions:
+        await callback.answer(
+            "Invalid region",
+            show_alert=True,
+        )
+        return
+
+    from zoneinfo import available_timezones
+
+    timezones = sorted(
+        tz
+        for tz in available_timezones()
+        if tz.startswith(f"{region}/")
+    )
+
+    if not timezones:
+        await callback.answer(
+            "No timezones found for this region.",
+            show_alert=True,
+        )
+        return
+
+    page_size = 20
+    total_pages = (len(timezones) + page_size - 1) // page_size
+
+    if page < 0:
+        page = 0
+
+    if page >= total_pages:
+        page = total_pages - 1
+
+    start_index = page * page_size
+    end_index = start_index + page_size
+
+    page_timezones = timezones[start_index:end_index]
+
+    buttons = []
+
+    for timezone_name in page_timezones:
+        label = timezone_name.split("/", 1)[1].replace(
+            "_",
+            " ",
+        )
+
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=(
+                        "owner:set_timezone:"
+                        f"{timezone_name}"
+                    ),
+                )
+            ]
+        )
+
+    nav_row = []
+
+    if page > 0:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️ PREV",
+                callback_data=(
+                    f"owner:timezone_region:{region}:{page - 1}"
+                ),
+            )
+        )
+
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"{page + 1}/{total_pages}",
+            callback_data="owner:timezone_noop",
+        )
+    )
+
+    if page < total_pages - 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="NEXT ➡️",
+                callback_data=(
+                    f"owner:timezone_region:{region}:{page + 1}"
+                ),
+            )
+        )
+
+    buttons.append(nav_row)
+
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⬅️ BACK TO REGIONS",
+                callback_data="owner:timezone",
+            )
+        ]
+    )
+
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            f"🌍 <b>{escape(region.upper())} TIMEZONES</b>\n\n"
+            f"Page {page + 1} of {total_pages}\n"
+            "Select your timezone:",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=buttons
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:timezone_noop")
+async def handle_owner_timezone_noop(
+    callback: CallbackQuery,
+) -> None:
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content_settings")
+async def handle_content_settings(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+
+    await callback.message.edit_text(
+        "📝 CONTENT SETTINGS\n\n"
+        "Select the screen you want to edit:",
+        reply_markup=_content_settings_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content:winning_tips")
+async def handle_winning_tips_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get("winning_tips")
+
+    if settings is None:
+        await callback.answer(
+            "Winning Tips settings not found.",
+            show_alert=True,
+        )
+        return
+
+    media_status = (
+        f"{settings.media_type.upper()} configured"
+        if settings.media_file_id and settings.media_type
+        else "No media"
+    )
+
+    text = (
+        "🎯 WINNING TIPS SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Info:\n{settings.body or 'Not set'}\n\n"
+        f"Footer:\n{settings.footer or 'Not set'}\n\n"
+        f"Registration Link:\n"
+        f"{settings.registration_url or 'Not set'}\n\n"
+        f"Promo Code:\n{settings.promo_code or 'Not set'}\n\n"
+        f"Media: {media_status}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data="admin:content_edit:winning_tips:heading",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data="admin:content_edit:winning_tips:body",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🧾 CHANGE FOOTER",
+                    callback_data="admin:content_edit:winning_tips:footer",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🖼 CHANGE MEDIA",
+                    callback_data="admin:content_media:winning_tips",
+                ),
+                InlineKeyboardButton(
+                    text="🗑 REMOVE MEDIA",
+                    callback_data="admin:content_media_remove:winning_tips",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 REGISTRATION LINK",
+                    callback_data="admin:content_edit:winning_tips:registration_url",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎟 PROMO CODE",
+                    callback_data="admin:content_edit:winning_tips:promo_code",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+_CONTENT_EDIT_LABELS = {
+    "heading": "heading",
+    "body": "info",
+    "footer": "footer",
+    "registration_url": "registration link",
+    "promo_code": "promo code",
+    "support_username": "support username",
+}
+
+
+@router.callback_query(F.data.startswith("admin:content_edit:"))
+async def handle_content_text_edit_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if callback.data is None or callback.message is None:
+        return
+
+    parts = callback.data.split(":", 3)
+
+    if len(parts) != 4:
+        await callback.answer("Invalid edit request.", show_alert=True)
+        return
+
+    _, _, screen_key, field_name = parts
+
+    if field_name not in _CONTENT_EDIT_LABELS:
+        await callback.answer("Unsupported field.", show_alert=True)
+        return
+
+    await state.set_state(ContentSettingsStates.waiting_for_text)
+    await state.update_data(
+        content_screen_key=screen_key,
+        content_field_name=field_name,
+    )
+
+    await callback.message.answer(
+        f"Send the new {_CONTENT_EDIT_LABELS[field_name]}.\n\n"
+        "Send /cancel to cancel."
+    )
+    await callback.answer()
+
+
+@router.message(ContentSettingsStates.waiting_for_text)
+async def handle_content_text_edit_save(
+    message: Message,
+    state: FSMContext,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if message.text is None:
+        await message.answer("Please send text.")
+        return
+
+    if message.text.strip().lower() == "/cancel":
+        await state.clear()
+        await message.answer("Edit cancelled.")
+        return
+
+    data = await state.get_data()
+
+    screen_key = data.get("content_screen_key")
+    field_name = data.get("content_field_name")
+
+    if not isinstance(screen_key, str) or not isinstance(field_name, str):
+        await state.clear()
+        await message.answer("Edit session expired. Please try again.")
+        return
+
+    settings = await content_screen_settings_service.get(screen_key)
+
+    if settings is None:
+        await state.clear()
+        await message.answer("Content settings not found.")
+        return
+
+    values = {
+        "heading": settings.heading,
+        "body": settings.body,
+        "footer": settings.footer,
+        "registration_url": settings.registration_url,
+        "promo_code": settings.promo_code,
+        "support_username": settings.support_username,
+    }
+
+    if field_name not in values:
+        await state.clear()
+        await message.answer("Unsupported field.")
+        return
+
+    values[field_name] = message.text.strip()
+
+    updated = await content_screen_settings_service.update_content(
+        screen_key=screen_key,
+        heading=values["heading"],
+        body=values["body"],
+        footer=values["footer"],
+        registration_url=values["registration_url"],
+        promo_code=values["promo_code"],
+        support_username=values["support_username"],
+    )
+
+    await state.clear()
+
+    if not updated:
+        await message.answer("Could not update content settings.")
+        return
+
+    await message.answer(
+        f"✅ {_CONTENT_EDIT_LABELS[field_name].title()} updated."
+    )
+
+
+@router.callback_query(F.data.startswith("admin:content_media:"))
+async def handle_content_media_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if callback.data is None or callback.message is None:
+        return
+
+    parts = callback.data.split(":", 2)
+
+    if len(parts) != 3:
+        await callback.answer("Invalid media request.", show_alert=True)
+        return
+
+    screen_key = parts[2]
+
+    await state.set_state(ContentSettingsStates.waiting_for_media)
+    await state.update_data(content_screen_key=screen_key)
+
+    await callback.message.answer(
+        "Send a photo or video for this screen.\n\n"
+        "Send /cancel to cancel."
+    )
+    await callback.answer()
+
+
+@router.message(ContentSettingsStates.waiting_for_media)
+async def handle_content_media_save(
+    message: Message,
+    state: FSMContext,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        await message.answer("Media update cancelled.")
+        return
+
+    data = await state.get_data()
+    screen_key = data.get("content_screen_key")
+
+    if not isinstance(screen_key, str):
+        await state.clear()
+        await message.answer("Media session expired. Please try again.")
+        return
+
+    media_file_id: str | None = None
+    media_type: str | None = None
+
+    if message.photo:
+        media_file_id = message.photo[-1].file_id
+        media_type = "photo"
+    elif message.video:
+        media_file_id = message.video.file_id
+        media_type = "video"
+    else:
+        await message.answer(
+            "Please send a photo or video.\n"
+            "Send /cancel to cancel."
+        )
+        return
+
+    updated = await content_screen_settings_service.update_media(
+        screen_key=screen_key,
+        media_file_id=media_file_id,
+        media_type=media_type,
+    )
+
+    await state.clear()
+
+    if not updated:
+        await message.answer("Could not update media.")
+        return
+
+    await message.answer("✅ Media updated.")
+
+
+@router.callback_query(F.data.startswith("admin:content_media_remove:"))
+async def handle_content_media_remove(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.data is None:
+        return
+
+    parts = callback.data.split(":", 2)
+
+    if len(parts) != 3:
+        await callback.answer("Invalid media request.", show_alert=True)
+        return
+
+    screen_key = parts[2]
+
+    updated = await content_screen_settings_service.update_media(
+        screen_key=screen_key,
+        media_file_id=None,
+        media_type=None,
+    )
+
+    if not updated:
+        await callback.answer(
+            "Could not remove media.",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer("Media removed.", show_alert=True)
+
+
+@router.callback_query(F.data == "admin:content:today_insights")
+async def handle_today_insights_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get("today_insights")
+
+    if settings is None:
+        await callback.answer(
+            "Today's Insights settings not found.",
+            show_alert=True,
+        )
+        return
+
+    media_status = (
+        f"{settings.media_type.upper()} configured"
+        if settings.media_file_id and settings.media_type
+        else "No media"
+    )
+
+    text = (
+        "🔥 TODAY'S INSIGHTS SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Info:\n{settings.body or 'Not set'}\n\n"
+        f"Footer:\n{settings.footer or 'Not set'}\n\n"
+        f"Registration Link:\n"
+        f"{settings.registration_url or 'Not set'}\n\n"
+        f"Promo Code:\n{settings.promo_code or 'Not set'}\n\n"
+        f"Media: {media_status}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data="admin:content_edit:today_insights:heading",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data="admin:content_edit:today_insights:body",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🧾 CHANGE FOOTER",
+                    callback_data="admin:content_edit:today_insights:footer",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🖼 CHANGE MEDIA",
+                    callback_data="admin:content_media:today_insights",
+                ),
+                InlineKeyboardButton(
+                    text="🗑 REMOVE MEDIA",
+                    callback_data="admin:content_media_remove:today_insights",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 REGISTRATION LINK",
+                    callback_data="admin:content_edit:today_insights:registration_url",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎟 PROMO CODE",
+                    callback_data="admin:content_edit:today_insights:promo_code",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content:live_stats")
+async def handle_live_stats_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get("live_stats")
+
+    if settings is None:
+        await callback.answer(
+            "Live Stats settings not found.",
+            show_alert=True,
+        )
+        return
+
+    media_status = (
+        f"{settings.media_type.upper()} configured"
+        if settings.media_file_id and settings.media_type
+        else "No media"
+    )
+
+    text = (
+        "🏆 LIVE STATS SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Info:\n{settings.body or 'Not set'}\n\n"
+        f"Recent Winners / Footer:\n"
+        f"{settings.footer or 'Not set'}\n\n"
+        f"Registration Link:\n"
+        f"{settings.registration_url or 'Not set'}\n\n"
+        f"Media: {media_status}\n\n"
+        "📊 Bot Members, Channel Joins and VIP Members "
+        "are calculated automatically from the database."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data="admin:content_edit:live_stats:heading",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data="admin:content_edit:live_stats:body",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏆 CHANGE RECENT WINNERS",
+                    callback_data="admin:content_edit:live_stats:footer",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🖼 CHANGE MEDIA",
+                    callback_data="admin:content_media:live_stats",
+                ),
+                InlineKeyboardButton(
+                    text="🗑 REMOVE MEDIA",
+                    callback_data="admin:content_media_remove:live_stats",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 REGISTRATION LINK",
+                    callback_data="admin:content_edit:live_stats:registration_url",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content:referral")
+async def handle_referral_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+    referral_service: ReferralService,
+) -> None:
+    if callback.message is None:
+        return
+
+    content = await content_screen_settings_service.get("referral")
+    program = await referral_service.get_program_settings()
+
+    if content is None:
+        await callback.answer(
+            "Referral content settings not found.",
+            show_alert=True,
+        )
+        return
+
+    media_status = (
+        f"{content.media_type.upper()} configured"
+        if content.media_file_id and content.media_type
+        else "No media"
+    )
+
+    text = (
+        "🎁 REFER & EARN SETTINGS\n\n"
+        f"Heading:\n{content.heading or 'Not set'}\n\n"
+        f"Info:\n{content.body or 'Not set'}\n\n"
+        f"Commission: {program.commission_percent}%\n\n"
+        f"VIP Link:\n{program.vip_link or 'Not set'}\n\n"
+        f"Promo Code:\n{program.promo_code or 'Not set'}\n\n"
+        f"Claim Username:\n"
+        f"{program.claim_username or 'Not set'}\n\n"
+        f"Media: {media_status}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data="admin:content_edit:referral:heading",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data="admin:content_edit:referral:body",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💰 COMMISSION %",
+                    callback_data="admin:referral_edit:commission",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 VIP LINK",
+                    callback_data="admin:referral_edit:vip_link",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎟 PROMO CODE",
+                    callback_data="admin:referral_edit:promo_code",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👤 CLAIM USERNAME",
+                    callback_data="admin:referral_edit:claim_username",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🖼 CHANGE MEDIA",
+                    callback_data="admin:content_media:referral",
+                ),
+                InlineKeyboardButton(
+                    text="🗑 REMOVE MEDIA",
+                    callback_data="admin:content_media_remove:referral",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+_REFERRAL_EDIT_LABELS = {
+    "commission": "Commission %",
+    "vip_link": "VIP Link",
+    "promo_code": "Promo Code",
+    "claim_username": "Claim Username",
+}
+
+
+@router.callback_query(F.data.startswith("admin:referral_edit:"))
+async def handle_referral_edit_start(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    if callback.message is None or callback.data is None:
+        return
+
+    field = callback.data.rsplit(":", 1)[-1]
+
+    if field not in _REFERRAL_EDIT_LABELS:
+        await callback.answer(
+            "Unknown referral setting.",
+            show_alert=True,
+        )
+        return
+
+    await state.set_state(
+        ReferralSettingsStates.waiting_for_value
+    )
+    await state.update_data(referral_field=field)
+
+    await callback.message.answer(
+        f"✏️ Send new <b>{_REFERRAL_EDIT_LABELS[field]}</b>.\n\n"
+        "Send /cancel to cancel."
+    )
+    await callback.answer()
+
+
+@router.message(ReferralSettingsStates.waiting_for_value)
+async def handle_referral_edit_save(
+    message: Message,
+    state: FSMContext,
+    referral_service: ReferralService,
+) -> None:
+    if not message.text:
+        await message.answer("Please send a text value.")
+        return
+
+    value = message.text.strip()
+
+    if value.lower() == "/cancel":
+        await state.clear()
+        await message.answer("❌ Referral settings edit cancelled.")
+        return
+
+    data = await state.get_data()
+    field = data.get("referral_field")
+
+    if field == "commission":
+        try:
+            commission = int(value)
+        except ValueError:
+            await message.answer(
+                "Commission must be a number from 0 to 100."
+            )
+            return
+
+        if not 0 <= commission <= 100:
+            await message.answer(
+                "Commission must be between 0 and 100."
+            )
+            return
+
+        await referral_service.update_program_settings(
+            commission_percent=commission,
+        )
+
+    elif field == "vip_link":
+        await referral_service.update_program_settings(
+            vip_link=value,
+        )
+
+    elif field == "promo_code":
+        await referral_service.update_program_settings(
+            promo_code=value,
+        )
+
+    elif field == "claim_username":
+        await referral_service.update_program_settings(
+            claim_username=value.lstrip("@"),
+        )
+
+    else:
+        await state.clear()
+        await message.answer("Unknown referral setting.")
+        return
+
+    await state.clear()
+
+    await message.answer(
+        f"✅ <b>{_REFERRAL_EDIT_LABELS[field]}</b> updated successfully.",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ BACK TO REFER & EARN SETTINGS",
+                        callback_data="admin:content:referral",
+                    )
+                ]
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == "admin:content:how_it_works")
+async def handle_how_it_works_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get(
+        "how_it_works"
+    )
+
+    if settings is None:
+        await callback.answer(
+            "How It Works settings not found.",
+            show_alert=True,
+        )
+        return
+
+    text = (
+        "📖 HOW IT WORKS SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Instructions:\n{settings.body or 'Not set'}\n\n"
+        f"Registration Link:\n"
+        f"{settings.registration_url or 'Not set'}\n\n"
+        f"Promo Code:\n"
+        f"{settings.promo_code or 'Not set'}\n\n"
+        f"Support Username:\n"
+        f"{settings.support_username or 'Not set'}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data=(
+                        "admin:content_edit:how_it_works:heading"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INSTRUCTIONS",
+                    callback_data=(
+                        "admin:content_edit:how_it_works:body"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔗 REGISTRATION LINK",
+                    callback_data=(
+                        "admin:content_edit:how_it_works:"
+                        "registration_url"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎁 PROMO CODE",
+                    callback_data=(
+                        "admin:content_edit:how_it_works:"
+                        "promo_code"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 SUPPORT USERNAME",
+                    callback_data=(
+                        "admin:content_edit:how_it_works:"
+                        "support_username"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content:notifications")
+async def handle_notifications_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get(
+        "notifications"
+    )
+
+    if settings is None:
+        await callback.answer(
+            "Notifications settings not found.",
+            show_alert=True,
+        )
+        return
+
+    text = (
+        "🔔 NOTIFICATIONS SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Info:\n{settings.body or 'Not set'}\n\n"
+        "ℹ️ User ON/OFF status is stored separately "
+        "for every user in the database."
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data=(
+                        "admin:content_edit:notifications:heading"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data=(
+                        "admin:content_edit:notifications:body"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:content:support")
+async def handle_support_settings(
+    callback: CallbackQuery,
+    content_screen_settings_service: ContentScreenSettingsService,
+) -> None:
+    if callback.message is None:
+        return
+
+    settings = await content_screen_settings_service.get("support")
+
+    if settings is None:
+        await callback.answer(
+            "Support settings not found.",
+            show_alert=True,
+        )
+        return
+
+    text = (
+        "💬 SUPPORT SETTINGS\n\n"
+        f"Heading:\n{settings.heading or 'Not set'}\n\n"
+        f"Info:\n{settings.body or 'Not set'}\n\n"
+        f"Support Username:\n"
+        f"{settings.support_username or 'Not set'}"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE HEADING",
+                    callback_data="admin:content_edit:support:heading",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📝 CHANGE INFO",
+                    callback_data="admin:content_edit:support:body",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💬 SUPPORT USERNAME",
+                    callback_data=(
+                        "admin:content_edit:support:support_username"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="admin:content_settings",
+                )
+            ],
+        ]
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:referral_stats")
+async def handle_referral_stats(
+    callback: CallbackQuery,
+    referral_service: ReferralService,
+) -> None:
+    if not isinstance(callback.message, Message):
+        return
+
+    leaderboard = await referral_service.get_referral_leaderboard()
+
+    if not leaderboard:
+        await callback.message.edit_text(
+            "📊 <b>REFERRAL STATS</b>\n\n"
+            "No referrals have been recorded yet.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="⬅️ BACK",
+                            callback_data="admin:content:referral",
+                        )
+                    ]
+                ]
+            ),
+        )
+        await callback.answer()
+        return
+
+    total_referrals = sum(
+        count for _, count in leaderboard
+    )
+
+    lines = [
+        "📊 <b>REFERRAL STATS</b>",
+        "",
+        f"👥 <b>Total Referrals:</b> {total_referrals}",
+        f"🏆 <b>Total Referrers:</b> {len(leaderboard)}",
+        "",
+        "━━━━━━━━━━━━━━━━━━",
+        "",
+        "🏆 <b>TOP REFERRERS</b>",
+    ]
+
+    for index, (user, count) in enumerate(
+        leaderboard,
+        start=1,
+    ):
+        if user.username:
+            display_name = f"@{user.username}"
+        else:
+            display_name = (
+                user.first_name
+                or user.last_name
+                or f"User {user.telegram_user_id}"
+            )
+
+        lines.append(
+            f"{index}. {escape(display_name)} — "
+            f"<b>{count}</b> referrals"
+        )
+
+    lines.extend(
+        [
+            "",
+            "━━━━━━━━━━━━━━━━━━",
+        ]
+    )
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="⬅️ BACK TO REFERRAL SETTINGS",
+                        callback_data="admin:content:referral",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🛡 ADMIN PANEL",
+                        callback_data="admin:back",
+                    )
+                ],
+            ]
+        ),
+    )
+
+    await callback.answer()

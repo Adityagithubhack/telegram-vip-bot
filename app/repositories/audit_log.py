@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.db.models.audit_log import AuditLog
@@ -27,3 +28,19 @@ class AuditLogRepository:
         self._session.add(audit_log)
 
         return audit_log
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 20,
+    ) -> list[AuditLog]:
+        result = await self._session.execute(
+            select(AuditLog)
+            .order_by(
+                AuditLog.created_at.desc(),
+                AuditLog.id.desc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+

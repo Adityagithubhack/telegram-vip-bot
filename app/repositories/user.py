@@ -22,6 +22,20 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_username(
+        self,
+        username: str,
+    ) -> User | None:
+        clean_username = username.lstrip("@")
+
+        result = await self._session.execute(
+            select(User).where(
+                User.username.ilike(clean_username)
+            )
+        )
+
+        return result.scalar_one_or_none()
+
     async def update_locale(
         self,
         *,
@@ -90,6 +104,23 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_all(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[User]:
+        result = await self._session.execute(
+            select(User)
+            .order_by(
+                User.created_at.desc(),
+                User.id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
     async def get_by_ids(
         self,
         user_ids: list[int],
@@ -104,3 +135,18 @@ class UserRepository:
         )
 
         return list(result.scalars().all())
+
+
+    async def delete(
+        self,
+        user_id: int,
+    ) -> bool:
+        user = await self.get_by_id(user_id=user_id)
+
+        if user is None:
+            return False
+
+        await self._session.delete(user)
+        await self._session.flush()
+
+        return True

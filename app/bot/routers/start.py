@@ -6,6 +6,7 @@ from app.bot.routers.menu import send_main_menu
 from app.bot.views.membership import send_membership_gate
 from app.services.membership import MembershipService
 from app.services.onboarding import OnboardingService
+from app.services.referral import ReferralService
 from app.services.user import UserService
 
 router = Router(name="start")
@@ -17,11 +18,27 @@ async def handle_start(
     user_service: UserService,
     membership_service: MembershipService,
     onboarding_service: OnboardingService,
+    referral_service: ReferralService,
 ) -> None:
     if message.from_user is None:
         return
 
     user = await user_service.upsert_from_telegram(message.from_user)
+
+    if message.text:
+        parts = message.text.split(maxsplit=1)
+
+        if len(parts) == 2:
+            payload = parts[1].strip()
+
+            if payload.startswith("ref_"):
+                referral_code = payload.removeprefix("ref_").strip()
+
+                if referral_code:
+                    await referral_service.attribute(
+                        user_id=user.id,
+                        referral_code=referral_code,
+                    )
 
     decision = await membership_service.check_required_channels(
         user=user,

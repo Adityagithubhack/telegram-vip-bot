@@ -31,3 +31,15 @@ class AuditLogService:
             )
 
             await session.commit()
+
+
+    async def list_recent(
+        self,
+        *,
+        limit: int = 20,
+    ):
+        async with self._session_factory() as session:
+            repository = AuditLogRepository(session)
+            return await repository.list_recent(
+                limit=limit
+            )

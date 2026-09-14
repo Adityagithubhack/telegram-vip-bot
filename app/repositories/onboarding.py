@@ -125,6 +125,53 @@ class OnboardingRepository:
             )
         )
 
+    async def revoke_vip_access(
+        self,
+        *,
+        user_id: int,
+        updated_at: datetime,
+    ) -> None:
+        await self._session.execute(
+            update(UserOnboarding)
+            .where(UserOnboarding.user_id == user_id)
+            .values(
+                vip_access_granted_at=None,
+                updated_at=updated_at,
+            )
+        )
+
+    async def reset_verification(
+        self,
+        *,
+        user_id: int,
+        updated_at: datetime,
+    ) -> None:
+        await self._session.execute(
+            update(UserOnboarding)
+            .where(UserOnboarding.user_id == user_id)
+            .values(
+                registration_completed_at=None,
+                contact_verified_at=None,
+                vip_access_granted_at=None,
+                updated_at=updated_at,
+            )
+        )
+
+    async def reset_all_verifications(
+        self,
+        *,
+        updated_at: datetime,
+    ) -> int:
+        result = await self._session.execute(
+            update(UserOnboarding).values(
+                registration_completed_at=None,
+                contact_verified_at=None,
+                vip_access_granted_at=None,
+                updated_at=updated_at,
+            )
+        )
+        return result.rowcount or 0
+
     async def set_vip_access_granted(
         self,
         *,

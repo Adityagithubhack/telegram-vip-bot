@@ -161,6 +161,54 @@ class OnboardingService:
                 reason="granted",
             )
 
+    async def revoke_vip_access(
+        self,
+        *,
+        user_id: int,
+    ) -> None:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+            await repository.revoke_vip_access(
+                user_id=user_id,
+                updated_at=datetime.now(UTC),
+            )
+            await session.commit()
+
+    async def reset_verification(
+        self,
+        *,
+        user_id: int,
+    ) -> None:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+            await repository.reset_verification(
+                user_id=user_id,
+                updated_at=datetime.now(UTC),
+            )
+            await session.commit()
+
+    async def reset_all_verifications(
+        self,
+    ) -> int:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+            count = await repository.reset_all_verifications(
+                updated_at=datetime.now(UTC),
+            )
+            await session.commit()
+            return count
+
+    async def get_state(
+        self,
+        *,
+        user_id: int,
+    ) -> UserOnboarding | None:
+        async with self._session_factory() as session:
+            repository = OnboardingRepository(session)
+            return await repository.get_by_user_id(
+                user_id=user_id
+            )
+
     async def list_pending_vip_approvals(
         self,
     ) -> list[PendingVipApproval]:
