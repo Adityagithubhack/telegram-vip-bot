@@ -54,9 +54,11 @@ def main() -> None:
 
         postgres_name = f"{compose_project}_postgres"
         redis_name = f"{compose_project}_redis"
+        bot_name = f"{compose_project}_bot"
 
         postgres_running = docker_container_running(postgres_name)
         redis_running = docker_container_running(redis_name)
+        bot_running = docker_container_running(bot_name)
 
         clients.append(
             (
@@ -65,6 +67,7 @@ def main() -> None:
                 folder.name,
                 postgres_running,
                 redis_running,
+                bot_running,
             )
         )
 
@@ -80,6 +83,7 @@ def main() -> None:
             folder,
             postgres_running,
             redis_running,
+            bot_running,
         ) in enumerate(clients, 1):
             print(f"{number}. {brand}")
             print(f"   Admin:    {admin_brand}")
@@ -89,6 +93,9 @@ def main() -> None:
             )
             print(
                 f"   Redis:    {'RUNNING' if redis_running else 'STOPPED'}"
+            )
+            print(
+                f"   Bot:      {'RUNNING' if bot_running else 'STOPPED'}"
             )
             print()
 

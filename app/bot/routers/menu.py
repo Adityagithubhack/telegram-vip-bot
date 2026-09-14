@@ -19,6 +19,7 @@ from app.services.content_screen_settings import ContentScreenSettingsService
 from app.services.daily_pick import DailyPickService
 from app.services.membership import MembershipService
 from app.services.referral import ReferralService
+from app.services.notification_preference import NotificationPreferenceService
 from app.services.onboarding import OnboardingProgress, OnboardingService
 from app.services.user import UserService
 from app.services.vip_category import VipCategoryService
