@@ -33,6 +33,21 @@ services:
       timeout: 3s
       retries: 10
 
+  bot:
+    build: .
+    container_name: ${COMPOSE_PROJECT_NAME:-telegram_vip}_bot
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-telegram_vip}:${POSTGRES_PASSWORD:-telegram_vip_dev_password}@postgres:5432/${POSTGRES_DB:-telegram_vip}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
