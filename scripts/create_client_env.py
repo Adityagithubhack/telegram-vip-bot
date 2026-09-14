@@ -8,6 +8,8 @@ brand_name = input("Brand name: ").strip()
 admin_brand_name = input("Admin brand name: ").strip()
 bot_token = input("Bot token: ").strip()
 super_admin_id = input("Owner Telegram ID: ").strip()
+required_channel_username = input("Required channel username (without @, optional): ").strip()
+required_channel_invite_url = input("Required channel invite URL (optional): ").strip()
 postgres_port = input("Postgres port [5433]: ").strip() or "5433"
 redis_port = input("Redis port [6380]: ").strip() or "6380"
 
@@ -42,6 +44,9 @@ SUPER_ADMIN_TELEGRAM_ID={super_admin_id}
 
 BRAND_NAME={brand_name}
 ADMIN_BRAND_NAME={admin_brand_name or brand_name + " ADMIN"}
+
+REQUIRED_CHANNEL_USERNAME={required_channel_username}
+REQUIRED_CHANNEL_INVITE_URL={required_channel_invite_url}
 
 COMPOSE_PROJECT_NAME={compose_project}
 POSTGRES_DB={db_name}
