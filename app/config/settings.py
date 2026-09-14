@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # White-label branding
     brand_name: str = "SPIDY SPORTS INTELLIGENCE"
     admin_brand_name: str = "SPIDY’S ADMIN"
+    required_channel_username: str | None = None
+    required_channel_invite_url: str | None = None
 
     @property
     def is_production(self) -> bool:
