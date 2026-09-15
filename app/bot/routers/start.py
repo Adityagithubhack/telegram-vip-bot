@@ -99,7 +99,9 @@ async def handle_membership_verify(
 
         if isinstance(callback.message, Message):
             await callback.message.edit_text(
-                "✅ <b>Membership verified</b>"
+                "✅ <b>CHANNEL VERIFIED!</b>\n\n"
+                "🎉 You have successfully joined the required channel.\n"
+                "🔓 Your access has been unlocked."
             )
             progress = await onboarding_service.get_progress(
                 user_id=user.id,
