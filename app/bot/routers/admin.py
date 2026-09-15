@@ -7775,27 +7775,88 @@ async def handle_owner_channel_change(
         await callback.answer("⛔ Owner only", show_alert=True)
         return
 
+    await state.clear()
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🌐 PUBLIC CHANNEL",
+                    callback_data="owner:channel_public",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔒 PRIVATE CHANNEL",
+                    callback_data="owner:channel_private",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ CANCEL",
+                    callback_data="owner:channel_settings",
+                )
+            ],
+        ]
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "📢 <b>CHANGE REQUIRED CHANNEL</b>\n\n"
+            "Choose the channel type.",
+            reply_markup=keyboard,
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:channel_public")
+async def handle_owner_public_channel(
+    callback: CallbackQuery,
+    state: FSMContext,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer("⛔ Owner only", show_alert=True)
+        return
+
     await state.set_state(
         ChannelSettingsStates.waiting_for_channel_username
     )
 
     if callback.message is not None:
         await callback.message.edit_text(
-            "📢 <b>CHANGE REQUIRED CHANNEL</b>\n\n"
-            "Send the new channel username.\n\n"
+            "🌐 <b>PUBLIC CHANNEL</b>\n\n"
+            "Send the channel username.\n\n"
             "Example: <code>@sportswinnerchannel</code>\n\n"
-            "⚠️ The bot must be added as an administrator "
-            "in the new channel before saving.",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="❌ CANCEL",
-                            callback_data="owner:channel_settings",
-                        )
-                    ]
-                ]
-            ),
+            "⚠️ Add the bot as an administrator first."
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:channel_private")
+async def handle_owner_private_channel(
+    callback: CallbackQuery,
+    state: FSMContext,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer("⛔ Owner only", show_alert=True)
+        return
+
+    await state.set_state(
+        ChannelSettingsStates.waiting_for_private_channel
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "🔒 <b>PRIVATE CHANNEL</b>\n\n"
+            "Send these on ONE message:\n\n"
+            "<code>-1001234567890 https://t.me/+INVITE_LINK</code>\n\n"
+            "First = Channel ID\n"
+            "Second = Private invite link\n\n"
+            "⚠️ Add the bot as an administrator first."
         )
 
     await callback.answer()
@@ -7899,4 +7960,113 @@ async def save_owner_required_channel(
         f"<b>Join URL:</b> {escape(updated.invite_url or invite_url)}\n\n"
         "The Join Channel button and membership verification "
         "will now use this channel."
+    )
+
+
+@router.message(ChannelSettingsStates.waiting_for_private_channel)
+async def save_owner_private_channel(
+    message: Message,
+    state: FSMContext,
+    bot: Bot,
+    admin_service: AdminService,
+    channel_settings_service: ChannelSettingsService,
+) -> None:
+    if message.from_user is None:
+        return
+
+    if not await admin_service.is_owner(message.from_user.id):
+        await state.clear()
+        return
+
+    parts = (message.text or "").strip().split(maxsplit=1)
+
+    if len(parts) != 2:
+        await message.answer(
+            "❌ Invalid format.\n\n"
+            "Send:\n"
+            "<code>-1001234567890 https://t.me/+INVITE_LINK</code>"
+        )
+        return
+
+    raw_chat_id, invite_url = parts
+
+    try:
+        chat_id = int(raw_chat_id)
+    except ValueError:
+        await message.answer("❌ Invalid channel ID.")
+        return
+
+    if not str(chat_id).startswith("-100"):
+        await message.answer(
+            "❌ Telegram channel ID should normally start with "
+            "<code>-100</code>."
+        )
+        return
+
+    if not (
+        invite_url.startswith("https://t.me/+")
+        or invite_url.startswith("https://t.me/joinchat/")
+    ):
+        await message.answer("❌ Invalid private Telegram invite link.")
+        return
+
+    try:
+        chat = await bot.get_chat(chat_id)
+        bot_member = await bot.get_chat_member(
+            chat_id=chat_id,
+            user_id=bot.id,
+        )
+    except TelegramBadRequest:
+        await message.answer(
+            "❌ I can't access that channel.\n\n"
+            "Check the Channel ID and add this bot as an administrator."
+        )
+        return
+
+    if str(chat.type) not in {"channel", "ChatType.CHANNEL"}:
+        await message.answer("❌ That ID does not belong to a channel.")
+        return
+
+    if str(bot_member.status) not in {
+        "administrator",
+        "creator",
+        "ChatMemberStatus.ADMINISTRATOR",
+        "ChatMemberStatus.CREATOR",
+    }:
+        await message.answer(
+            "❌ This bot is not an administrator in that channel."
+        )
+        return
+
+    current = await channel_settings_service.get_required_channel()
+
+    if current is None:
+        await state.clear()
+        await message.answer(
+            "❌ No existing required channel record was found."
+        )
+        return
+
+    updated = await channel_settings_service.update_required_channel(
+        channel_id=current.id,
+        telegram_chat_id=chat.id,
+        title=chat.title or "Private Channel",
+        username=None,
+        invite_url=invite_url,
+    )
+
+    if updated is None:
+        await state.clear()
+        await message.answer("❌ Channel update failed.")
+        return
+
+    await state.clear()
+
+    await message.answer(
+        "✅ <b>PRIVATE REQUIRED CHANNEL UPDATED</b>\n\n"
+        f"<b>Channel:</b> {escape(updated.title)}\n"
+        f"<b>Channel ID:</b> <code>{updated.telegram_chat_id}</code>\n"
+        f"<b>Join URL:</b> {escape(updated.invite_url or invite_url)}\n\n"
+        "The Join Channel button and membership verification "
+        "will now use this private channel."
     )
