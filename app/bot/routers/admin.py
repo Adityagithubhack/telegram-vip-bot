@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from aiogram.exceptions import TelegramBadRequest
 
 from app.bot.states.admin_management import AdminManagementStates
+from app.bot.states.channel_settings import ChannelSettingsStates
 from app.bot.states.content_settings import (
     ContentSettingsStates,
     ReferralSettingsStates,
@@ -16,6 +17,7 @@ from app.bot.states.daily_pick import DailyPickStates
 from app.bot.states.vip_settings import VipSettingsStates
 from app.services.admin import AdminService
 from app.services.audit_log import AuditLogService
+from app.services.channel_settings import ChannelSettingsService
 from app.services.content_screen_settings import ContentScreenSettingsService
 from app.services.admin_vip import AdminVipService
 from app.services.daily_pick import DailyPickService
@@ -3710,6 +3712,12 @@ def _owner_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="🌍 TIMEZONE",
                     callback_data="owner:timezone",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📢 CHANNEL SETTINGS",
+                    callback_data="owner:channel_settings",
                 )
             ],
             [
@@ -7696,3 +7704,199 @@ async def handle_referral_stats(
     )
 
     await callback.answer()
+
+
+@router.callback_query(F.data == "owner:channel_settings")
+async def handle_owner_channel_settings(
+    callback: CallbackQuery,
+    admin_service: AdminService,
+    channel_settings_service: ChannelSettingsService,
+) -> None:
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer("⛔ Owner only", show_alert=True)
+        return
+
+    channel = await channel_settings_service.get_required_channel()
+
+    if channel is None:
+        text = (
+            "📢 <b>CHANNEL SETTINGS</b>\n\n"
+            "No active required channel is configured."
+        )
+    else:
+        username = (
+            f"@{channel.username.lstrip('@')}"
+            if channel.username
+            else "Not set"
+        )
+        invite_url = channel.invite_url or "Not set"
+
+        text = (
+            "📢 <b>CHANNEL SETTINGS</b>\n\n"
+            f"<b>Current Channel:</b> {escape(channel.title)}\n"
+            f"<b>Username:</b> {escape(username)}\n"
+            f"<b>Join URL:</b> {escape(invite_url)}\n\n"
+            "Only the bot owner can change this channel."
+        )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✏️ CHANGE CHANNEL",
+                    callback_data="owner:channel_change",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ BACK",
+                    callback_data="owner:back",
+                )
+            ],
+        ]
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "owner:channel_change")
+async def handle_owner_channel_change(
+    callback: CallbackQuery,
+    state: FSMContext,
+    admin_service: AdminService,
+) -> None:
+    if not await admin_service.is_owner(callback.from_user.id):
+        await callback.answer("⛔ Owner only", show_alert=True)
+        return
+
+    await state.set_state(
+        ChannelSettingsStates.waiting_for_channel_username
+    )
+
+    if callback.message is not None:
+        await callback.message.edit_text(
+            "📢 <b>CHANGE REQUIRED CHANNEL</b>\n\n"
+            "Send the new channel username.\n\n"
+            "Example: <code>@sportswinnerchannel</code>\n\n"
+            "⚠️ The bot must be added as an administrator "
+            "in the new channel before saving.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="❌ CANCEL",
+                            callback_data="owner:channel_settings",
+                        )
+                    ]
+                ]
+            ),
+        )
+
+    await callback.answer()
+
+
+@router.message(ChannelSettingsStates.waiting_for_channel_username)
+async def save_owner_required_channel(
+    message: Message,
+    state: FSMContext,
+    bot: Bot,
+    admin_service: AdminService,
+    channel_settings_service: ChannelSettingsService,
+) -> None:
+    if message.from_user is None:
+        return
+
+    if not await admin_service.is_owner(message.from_user.id):
+        await state.clear()
+        return
+
+    raw_username = (message.text or "").strip()
+    if not raw_username:
+        await message.answer(
+            "❌ Send a valid channel username, for example "
+            "<code>@sportswinnerchannel</code>."
+        )
+        return
+
+    username = raw_username.lstrip("@")
+    if not username:
+        await message.answer("❌ Invalid channel username.")
+        return
+
+    try:
+        chat = await bot.get_chat(f"@{username}")
+    except TelegramBadRequest:
+        await message.answer(
+            "❌ I couldn't find that channel.\n\n"
+            "Check the username and make sure the bot has access."
+        )
+        return
+
+    if str(chat.type) not in {"channel", "ChatType.CHANNEL"}:
+        await message.answer("❌ That username is not a Telegram channel.")
+        return
+
+    try:
+        bot_member = await bot.get_chat_member(
+            chat_id=chat.id,
+            user_id=bot.id,
+        )
+    except TelegramBadRequest:
+        await message.answer(
+            "❌ I can't verify my access to that channel.\n\n"
+            "Add this bot as an administrator first."
+        )
+        return
+
+    if str(bot_member.status) not in {
+        "administrator",
+        "creator",
+        "ChatMemberStatus.ADMINISTRATOR",
+        "ChatMemberStatus.CREATOR",
+    }:
+        await message.answer(
+            "❌ This bot is not an administrator in that channel.\n\n"
+            "Add it as admin, then send the username again."
+        )
+        return
+
+    current = await channel_settings_service.get_required_channel()
+    if current is None:
+        await state.clear()
+        await message.answer(
+            "❌ No existing required channel record was found."
+        )
+        return
+
+    canonical_username = chat.username or username
+    invite_url = f"https://t.me/{canonical_username}"
+
+    updated = await channel_settings_service.update_required_channel(
+        channel_id=current.id,
+        telegram_chat_id=chat.id,
+        title=chat.title or canonical_username,
+        username=canonical_username,
+        invite_url=invite_url,
+    )
+
+    if updated is None:
+        await state.clear()
+        await message.answer("❌ Channel update failed.")
+        return
+
+    await state.clear()
+
+    await message.answer(
+        "✅ <b>REQUIRED CHANNEL UPDATED</b>\n\n"
+        f"<b>Channel:</b> {escape(updated.title)}\n"
+        f"<b>Username:</b> @{escape(updated.username or canonical_username)}\n"
+        f"<b>Join URL:</b> {escape(updated.invite_url or invite_url)}\n\n"
+        "The Join Channel button and membership verification "
+        "will now use this channel."
+    )

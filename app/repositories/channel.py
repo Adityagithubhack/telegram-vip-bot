@@ -21,3 +21,22 @@ class ChannelRepository:
             )
         )
         return list(result.scalars().all())
+
+    async def get_by_id(self, channel_id: int) -> Channel | None:
+        return await self._session.get(Channel, channel_id)
+
+    async def update(
+        self,
+        channel: Channel,
+        *,
+        telegram_chat_id: int,
+        title: str,
+        username: str | None,
+        invite_url: str | None,
+    ) -> Channel:
+        channel.telegram_chat_id = telegram_chat_id
+        channel.title = title
+        channel.username = username
+        channel.invite_url = invite_url
+        await self._session.flush()
+        return channel

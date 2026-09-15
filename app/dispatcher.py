@@ -11,6 +11,7 @@ from app.gateways.telegram_membership import TelegramMembershipGateway
 from app.services.admin import AdminService
 from app.services.admin_vip import AdminVipService
 from app.services.audit_log import AuditLogService
+from app.services.channel_settings import ChannelSettingsService
 from app.services.content_screen_settings import ContentScreenSettingsService
 from app.services.daily_pick import DailyPickService
 from app.services.live_stats import LiveStatsService
@@ -43,6 +44,7 @@ def create_dispatcher(
         referral_service=ReferralService(session_factory),
         notification_preference_service=NotificationPreferenceService(session_factory),
         audit_log_service=AuditLogService(session_factory),
+        channel_settings_service=ChannelSettingsService(session_factory),
         admin_service=AdminService(session_factory),
         admin_vip_service=AdminVipService(session_factory),
         daily_pick_service=DailyPickService(session_factory),
