@@ -1,6 +1,6 @@
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 
 from app.bot.routers.menu import send_main_menu
 from app.bot.views.membership import send_membership_gate
@@ -99,9 +99,7 @@ async def handle_membership_verify(
 
         if isinstance(callback.message, Message):
             await callback.message.edit_text(
-                "✅ <b>CHANNEL VERIFIED!</b>\n\n"
-                "🎉 You have successfully joined the required channel.\n"
-                "🔓 Your access has been unlocked."
+                "✅ <b>Membership verified</b>"
             )
             progress = await onboarding_service.get_progress(
                 user_id=user.id,
@@ -125,3 +123,47 @@ async def handle_id(message: Message) -> None:
     await message.answer(
         f"Your Telegram ID: <code>{message.from_user.id}</code>"
     )
+
+@router.chat_member()
+async def handle_channel_member_update(
+    event: ChatMemberUpdated,
+    user_service: UserService,
+    membership_service: MembershipService,
+) -> None:
+    old_status = str(event.old_chat_member.status)
+    new_status = str(event.new_chat_member.status)
+
+    joined_statuses = {"member", "administrator", "creator"}
+
+    # Only react when the user actually becomes a channel member.
+    if new_status not in joined_statuses or old_status in joined_statuses:
+        return
+
+    telegram_user = event.new_chat_member.user
+
+    if telegram_user.is_bot:
+        return
+
+    user = await user_service.get_by_telegram_id(telegram_user.id)
+    if user is None:
+        return
+
+    # Re-check every required channel. Never grant access from the event alone.
+    decision = await membership_service.check_required_channels(user=user)
+
+    if not decision.all_required_joined:
+        return
+
+    try:
+        await event.bot.send_message(
+            chat_id=telegram_user.id,
+            text=(
+                "✅ <b>JOIN REQUEST ACCEPTED!</b>\n\n"
+                "🎉 Your channel access has been approved.\n"
+                "🔓 You can now access the bot."
+            ),
+        )
+    except Exception:
+        # Telegram may prevent DMs if the user has never started the bot
+        # or has blocked it. Membership itself remains unaffected.
+        return
