@@ -25,6 +25,27 @@ class ChannelRepository:
     async def get_by_id(self, channel_id: int) -> Channel | None:
         return await self._session.get(Channel, channel_id)
 
+    async def create(
+        self,
+        *,
+        telegram_chat_id: int,
+        title: str,
+        username: str | None,
+        invite_url: str | None,
+    ) -> Channel:
+        channel = Channel(
+            telegram_chat_id=telegram_chat_id,
+            title=title,
+            username=username,
+            invite_url=invite_url,
+            is_required=True,
+            is_active=True,
+            priority=100,
+        )
+        self._session.add(channel)
+        await self._session.flush()
+        return channel
+
     async def update(
         self,
         channel: Channel,

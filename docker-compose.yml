@@ -1,13 +1,12 @@
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-telegram_vip}_postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-telegram_vip}
       POSTGRES_USER: ${POSTGRES_USER:-telegram_vip}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-telegram_vip_dev_password}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,10 +20,9 @@ services:
       retries: 10
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-telegram_vip}_redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

@@ -17,6 +17,25 @@ class ChannelSettingsService:
             channels = await repository.get_required_active()
             return channels[0] if channels else None
 
+    async def create_required_channel(
+        self,
+        *,
+        telegram_chat_id: int,
+        title: str,
+        username: str | None,
+        invite_url: str | None,
+    ) -> Channel:
+        async with self._session_factory() as session:
+            repository = ChannelRepository(session)
+            channel = await repository.create(
+                telegram_chat_id=telegram_chat_id,
+                title=title,
+                username=username,
+                invite_url=invite_url,
+            )
+            await session.commit()
+            return channel
+
     async def update_required_channel(
         self,
         *,

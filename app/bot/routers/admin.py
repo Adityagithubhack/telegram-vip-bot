@@ -7928,23 +7928,25 @@ async def save_owner_required_channel(
         return
 
     current = await channel_settings_service.get_required_channel()
-    if current is None:
-        await state.clear()
-        await message.answer(
-            "❌ No existing required channel record was found."
-        )
-        return
 
     canonical_username = chat.username or username
     invite_url = f"https://t.me/{canonical_username}"
 
-    updated = await channel_settings_service.update_required_channel(
-        channel_id=current.id,
-        telegram_chat_id=chat.id,
-        title=chat.title or canonical_username,
-        username=canonical_username,
-        invite_url=invite_url,
-    )
+    if current is None:
+        updated = await channel_settings_service.create_required_channel(
+            telegram_chat_id=chat.id,
+            title=chat.title or canonical_username,
+            username=canonical_username,
+            invite_url=invite_url,
+        )
+    else:
+        updated = await channel_settings_service.update_required_channel(
+            channel_id=current.id,
+            telegram_chat_id=chat.id,
+            title=chat.title or canonical_username,
+            username=canonical_username,
+            invite_url=invite_url,
+        )
 
     if updated is None:
         await state.clear()
@@ -8041,19 +8043,20 @@ async def save_owner_private_channel(
     current = await channel_settings_service.get_required_channel()
 
     if current is None:
-        await state.clear()
-        await message.answer(
-            "❌ No existing required channel record was found."
+        updated = await channel_settings_service.create_required_channel(
+            telegram_chat_id=chat.id,
+            title=chat.title or "Private Channel",
+            username=None,
+            invite_url=invite_url,
         )
-        return
-
-    updated = await channel_settings_service.update_required_channel(
-        channel_id=current.id,
-        telegram_chat_id=chat.id,
-        title=chat.title or "Private Channel",
-        username=None,
-        invite_url=invite_url,
-    )
+    else:
+        updated = await channel_settings_service.update_required_channel(
+            channel_id=current.id,
+            telegram_chat_id=chat.id,
+            title=chat.title or "Private Channel",
+            username=None,
+            invite_url=invite_url,
+        )
 
     if updated is None:
         await state.clear()
